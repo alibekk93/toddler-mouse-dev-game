@@ -30,21 +30,27 @@ toddler_mouse_game/
 │   ├── importer.py        # image + audio normalisation (Pillow, soundfile)
 │   ├── round_builder.py   # round selection algorithm (SPEC §2.1)
 │   ├── settings.py        # settings.json load/save with defaults
-│   └── stats.py           # JSONL append + aggregation
+│   ├── backup.py          # library export/import as zip
+│   └── stats.py           # JSONL append + aggregation, motor metrics
 ├── ui/
 │   ├── kid/
-│   │   ├── session.py     # round state machine, timers, transitions
+│   │   ├── session.py     # quiz state machine, timers, transitions
+│   │   ├── warmup.py      # warm-up activity: drifting shapes, popping
 │   │   ├── scene.py       # QGraphicsScene: background, cards, cursor
 │   │   ├── card.py        # QGraphicsObject: hover/press/celebrate/wobble
 │   │   ├── cursor.py      # sprite cursor item + idle animations
+│   │   ├── tracker.py     # cursor path metrics for the round (§4.7)
 │   │   └── effects.py     # confetti, glow, sparkle trail
 │   └── parent/
 │       ├── main_window.py # nav shell
-│       ├── play_page.py
+│       ├── play_page.py   # Play + Warm-up buttons, readiness, backup reminder
 │       ├── images_page.py # grid, drag-drop, paste, staging tray, bulk tag
 │       ├── sounds_page.py # record/playback/trim, target-tag picker
 │       ├── settings_page.py
-│       └── progress_page.py
+│       ├── progress_page.py
+│       └── backup_page.py # export/import library zip
+├── platform/
+│   └── windows.py         # session hardening ctypes calls, no-op elsewhere
 ├── audio/
 │   ├── player.py          # QSoundEffect pool, master volume cap, ducking
 │   └── recorder.py        # sounddevice stream, level meter, WAV writer
@@ -57,9 +63,12 @@ toddler_mouse_game/
 
 ## 3. Kid-mode session state machine
 
-States: `IDLE → INTRO → ASKING → WAITING → (RETRY → WAITING)* → CELEBRATING → INTRO(next)`, plus `PAUSED` reachable from anywhere and `FINISHED`.
+Quiz states: `IDLE → INTRO → ASKING → WAITING → (RETRY → WAITING)* → CELEBRATING → INTRO(next)`, plus `PAUSED` reachable from anywhere and `FINISHED`.
+
+The warm-up activity (`SPEC.md` §3) has no state machine — it is a single continuous loop of drifting shapes with `PAUSED` and `FINISHED`. It shares `scene.py`, `cursor.py`, and `effects.py` with the quiz and knows nothing about the library. Keep it that way: warm-up must remain runnable on an empty library, which also makes it the fastest way to test cursor behaviour in isolation.
 
 - One `QTimer` per pending transition, all cancelled on state exit. No sleeping, no blocking, ever.
+- `WAITING` additionally owns one repeating timer, the repeat clock (`SPEC.md` §2.2), fired every `repeat_interval`. It carries a tick counter that drives both the audio repeat and the hint escalation, resets on every click, and is suspended while any voice audio is playing so repeats never stack. It is the only repeating timer in the app; everything else is one-shot.
 - All state lives in `session.py`; `scene.py` only renders and emits input signals. Do not scatter timing logic across card widgets.
 - `PAUSED` is entered on focus loss, on the 3-minute idle rule, and on `Esc` hold start. It stops audio and freezes animations, and it must be re-entrant-safe.
 
@@ -79,7 +88,7 @@ Two approaches, and the choice matters:
 `QSoundEffect` needs its WAVs pre-loaded and kept alive — instances garbage-collected mid-playback fail silently, which is a classic and baffling Qt bug to chase. Keep a persistent pool. Pre-load the current round's question and all sfx during the previous round's celebration. Duck sfx under voice rather than stopping it.
 
 ### 4.3 Fullscreen and DPI
-Use `showFullScreen()` on the chosen `QScreen`. Set `Qt.HighDpiScaleFactorRoundingPolicy.PassThrough`. Lay everything out in fractions of the scene rect, never in fixed pixels — the card sizes in `UX.md` §1 are percentages for exactly this reason.
+Use `showFullScreen()` on the primary `QScreen` — single monitor is a fixed constraint, so no screen selection logic. Set `Qt.HighDpiScaleFactorRoundingPolicy.PassThrough`. Lay everything out in fractions of the scene rect, never in fixed pixels — the card sizes in `UX.md` §1 are percentages for exactly this reason.
 
 ### 4.4 Clipboard images
 `QClipboard.mimeData()` may carry `image/png`, a `text/uri-list` of file paths, or an HTML fragment referencing a remote URL. Handle the first two; **ignore remote URLs entirely** rather than fetching them, since this app makes no network calls.
@@ -90,6 +99,12 @@ Twelve pasted photos going through decode + resize will freeze the parent window
 ### 4.6 Microphone permissions
 Windows 11 requires microphone consent for desktop apps. Detect the failure and say so plainly in the recording UI. Never fail silently to a 0-byte WAV.
 
+### 4.7 Cursor path tracking
+The motor metrics on the Progress page (`SPEC.md` §4.5) need the distance the cursor actually travelled during a round. Accumulate it in the same `mouseMoveEvent` that moves the sprite — sum the segment lengths, count target entries and exits, and note whether the cursor rested on the clicked card for ≥300ms before the click. Four scalars per round, no path history retained. Do not sample on a timer: a timer both misses fast movement and inflates the total when the mouse is still.
+
+### 4.8 Session hardening lifecycle
+`SPEC.md` §7 calls for `SetThreadExecutionState`, `ClipCursor`, and suppressing Sticky/Filter Keys. All three live in `platform/windows.py`, behind one context manager entered on kid-mode start and exited on stop. Two rules: it must no-op cleanly on non-Windows, and restoration must survive a crash — install an `atexit` hook and an exception handler, then test by killing the process mid-session. A machine left with a clipped cursor and Sticky Keys disabled is a worse bug than anything in the game.
+
 ## 5. Testing
 
 Unit tests (`pytest`, no display needed) for:
@@ -97,9 +112,12 @@ Unit tests (`pytest`, no display needed) for:
 - Library: atomic save, `.bak` rotation, corrupt-manifest recovery, missing-file detection, duplicate-hash merge.
 - Importer: EXIF orientation and stripping, downscale bounds, audio trim/normalise, oversized-file rejection.
 - Settings: unknown-key preservation, missing-key defaults.
+- Backup: export produces a zip that imports into an empty folder and yields an identical manifest; verification catches a truncated file.
+- Stats: motor metric aggregation over a synthetic round log — path efficiency, overshoot count, hover-before-click share.
+- Tag handling: casefold and NFC normalisation on Cyrillic and accented Latin tags, round-trip through `library.json` with `ensure_ascii=False`, matching a Russian tag against a question recorded for it.
 
 Manual checklist for kid mode (a human has to look at it):
-`hover reaction is instant` · `wrong click feels gentle, not punishing` · `question is audible over a running dishwasher` · `Esc hold ring is visible` · `Alt+Tab pauses` · `nothing on screen invites a click except the cards`.
+`hover reaction is instant` · `wrong click feels gentle, not punishing` · `question is audible over a running dishwasher` · `repeats never talk over each other` · `repeats off means genuinely silent` · `Esc hold ring is visible` · `Alt+Tab pauses` · `display never sleeps mid-session` · `cursor cannot leave the window` · `five Shift presses do nothing` · `all three released after a forced kill` · `nothing on screen invites a click except the cards`.
 
 ## 6. Performance targets
 

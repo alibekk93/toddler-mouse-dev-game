@@ -4,6 +4,8 @@ A tiny, offline, parent-authored pointing game that teaches a 2-year-old to use 
 
 A recorded voice asks **"Where is the cat?"**. Two to six pictures appear. She moves a big friendly cursor across the screen, watches the pictures wake up as the cursor passes over them, and clicks the cat. Something nice happens. Next question.
 
+Alongside it there's a **warm-up** activity: no questions, no right answer, just slow-drifting shapes that pop when she clicks them. Pointing at things is a motor skill and naming things is language; warm-up lets her practise the first without the second, which matters a lot in the first few weeks.
+
 The content is entirely yours: you record the questions in your own voice and add the pictures yourself. Animals today, colours tomorrow, car logos the week after. The game itself knows nothing about cats — it only knows about **images with tags** and **recordings that ask for a tag**.
 
 ---
@@ -42,7 +44,8 @@ buska-game/                        ← wrapper folder, NOT under version control
 │       ├── UX.md                  ← kid-mode interaction design: cursor, timing, feedback
 │       ├── DATA_MODEL.md          ← folder layout, JSON schemas, validation
 │       ├── ARCHITECTURE.md        ← modules, libraries, threading, known traps
-│       └── ROADMAP.md             ← milestones, in build order
+│       ├── ROADMAP.md             ← milestones, in build order
+│       └── FUTURE_IDEAS.md        ← deliberately out of scope, with reasons
 └── library/                       ← the real content: her pictures and your voice
 ```
 
@@ -52,12 +55,13 @@ Point the Claude Code session at `toddler-mouse-dev-game/`, not at `buska-game/`
 
 Read order for a fresh Claude Code session: `CLAUDE.md` → `docs/ROADMAP.md` → `docs/SPEC.md` → whichever of `docs/UX.md` / `docs/DATA_MODEL.md` / `docs/ARCHITECTURE.md` the current milestone touches.
 
-## Assumptions I made
+## Fixed constraints
 
-Correct any of these before building and the docs will need small edits:
+These are settled, not open questions. Build against them.
 
-- **Fullscreen, single monitor, mouse only.** No touch, no gamepad, no tablet mode. Touch input would undercut the entire point.
-- **One child, one library.** No user accounts, no profiles. If a second child needs a separate library, that is a folder swap, not a feature.
-- **Question audio is recorded, not synthesised.** Text-to-speech exists only as an optional fallback for tags with no recording, off by default.
-- **Rounds run forever** until a grown-up exits. There is an optional session limit in settings, off by default.
-- **English/French tag names**, but nothing in the code cares — tags are opaque strings, and the audio is whatever language you record in.
+- **Fullscreen, single monitor, mouse only.** No touch, no gamepad, no tablet mode, no monitor picker. Touch input would undercut the entire point.
+- **One child, one library.** No accounts, no profiles, no library switcher in the UI. A second library, if it ever happens, is a `--library` flag and a folder swap — not a feature.
+- **Question audio is always recorded by a parent.** No text-to-speech anywhere in the app.
+- **The two activities never switch on their own.** A grown-up picks quiz or warm-up before the session starts.
+- **Rounds run forever** until a grown-up exits. No session timer, no daily limit, no "that's enough for today" screen. Knowing when to stop is the parent's job, not the software's.
+- **Tags are opaque strings in any language or script.** English, French, Russian, mixed — the engine never reads them, and nothing in the code or the data model records what language anything is in. The audio is simply whatever you recorded.

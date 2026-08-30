@@ -51,7 +51,7 @@ In this setup the real library is `buska-game/library/`, a sibling of the repo �
       "id": "7f3a1c2e",              // 8-hex prefix of sha256 of normalised bytes
       "file": "images/7f3a1c2e.png",  // relative to library root
       "thumb": "thumbs/7f3a1c2e.jpg",
-      "tags": ["cat", "animal"],      // lowercase, trimmed, deduped
+      "tags": ["cat", "animal"],      // trimmed, casefolded, NFC, deduped; any script
       "category": "animals",          // optional, free string
       "label": "orange tabby",        // optional, parent-facing only
       "enabled": true,
@@ -79,7 +79,9 @@ In this setup the real library is `buska-game/library/`, a sibling of the repo �
 ### Rules
 
 - `id` is the first 8 hex chars of the sha256 of the file's normalised bytes. Collisions extend to 12 chars. This gives free duplicate detection: same picture pasted twice → same id → offer to merge tags.
-- `tags` are opaque strings. The app never interprets them. `cat`, `red`, `7`, `letter_b`, `toyota` are all the same to the engine.
+- `tags` are opaque strings in any language or script. The app never interprets them, never translates them, and never records what language they are in. `cat`, `chat`, `кошка`, `red`, `7`, `letter_b`, `toyota` are all the same kind of thing to the engine: a string compared against other strings. The same tag may be asked by recordings in different languages, and that works without the code knowing it happened.
+- Tag normalisation on entry: strip whitespace, Unicode-normalise to NFC, then `str.casefold()` (not `.lower()` — casefold handles non-Latin scripts correctly), then dedupe. Everything is UTF-8 throughout, and `json.dump` must use `ensure_ascii=False` so the manifest stays readable to a human opening it.
+- Filenames on disk are always hash-derived ASCII, never tag-derived — this keeps non-Latin tags away from filesystem encoding problems entirely.
 - A `question` sound whose `target_tag` matches no enabled image is **valid but unusable** — surfaced as a warning, never an error.
 - An image with no tags is valid but never appears as a correct answer. It may still appear as a distractor.
 - `praise` and `retry` sounds have no `target_tag`; the game picks one at random.
@@ -102,19 +104,31 @@ Write protocol for `library.json`: write to `library.json.tmp`, fsync, rotate cu
 
 ## 5. `settings.json`
 
-Flat key/value matching `SPEC.md` §3.4, plus `schema_version`. Unknown keys are preserved on write (forward compatibility), missing keys fall back to defaults. Never crash on a settings file from a newer version — load what you understand, keep the rest.
+Flat key/value matching `SPEC.md` §4.4, plus `schema_version`. Unknown keys are preserved on write (forward compatibility), missing keys fall back to defaults. Never crash on a settings file from a newer version — load what you understand, keep the rest.
 
 ## 6. `stats/*.jsonl`
 
 One line per completed round, append-only, one file per day:
 
 ```json
-{"ts":"2026-08-30T14:03:22Z","target_tag":"cat","n":3,"correct_id":"7f3a1c2e","shown":["7f3a1c2e","a91b0e4d","c3d7f228"],"first_click_correct":true,"misses":0,"ms_to_first_click":3120,"replays":0,"hinted":false}
+{"ts":"2026-08-30T14:03:22Z","target_tag":"cat","prompt_id":"9b2d4f10","n":3,"correct_id":"7f3a1c2e","shown":["7f3a1c2e","a91b0e4d","c3d7f228"],"first_click_correct":true,"misses":0,"ms_to_first_click":3120,"repeats":0,"hinted":false,"path_px":2840,"direct_px":760,"overshoots":2,"hover_before_click_ms":420}
 ```
+
+The last four fields are the motor metrics behind the Progress page (`SPEC.md` §4.5): total cursor distance travelled, the straight-line distance from where the cursor started the round to the card she clicked, how many times the cursor entered and left that card before clicking, and how long it rested there immediately before the click. Path efficiency is `path_px ÷ direct_px`, aggregated over the last 50 rounds. `prompt_id` records which recording asked the question, so a tag with several phrasings can be checked for even rotation.
 
 Append-only JSONL means a corrupt final line costs one round, not the file. The Progress screen aggregates these lazily; nothing else reads them.
 
-## 7. Media normalisation on import
+## 7. Library export
+
+**Export** (`SPEC.md` §4.6) zips the entire library folder — `library.json`, `settings.json`, `images/`, `thumbs/`, `audio/`, `stats/` — excluding `_trash/` and `library.json.bak`. Stored deflated; images and audio are already compressed, so expect little shrinkage and do not waste time on maximum compression.
+
+Filename: `buska-library-YYYY-MM-DD.zip`, suffixed `-2`, `-3` on collision rather than overwriting.
+
+After writing, reopen the zip, run `testzip()`, and confirm the manifest inside parses and lists the same number of entries as the live library. Only then report success and reset the additions counter. An export that silently produced a corrupt archive is worse than no export, because the parent stops worrying.
+
+**Import** accepts such a zip into an empty library folder only. If the target already has content, refuse and say so — merging two libraries is a feature nobody has asked for and a good way to lose both.
+
+## 8. Media normalisation on import
 
 **Images** — Pillow:
 1. Apply EXIF orientation, then strip all EXIF (phone photos carry GPS coordinates; this library may get shared).

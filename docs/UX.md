@@ -80,11 +80,24 @@ Never cut audio off. If the question is still playing when she clicks, let the c
 A 2-year-old's attention wanders mid-round. The game's job is to invite her back, never to nag.
 
 - After 15s of no mouse movement at all: the cursor does a bigger, cuter idle animation (a stretch, a yawn, a little hop).
-- After 30s: replay the question once more, regardless of `replay_limit`.
+- After 30s of no movement: one extra replay of the question — but only if `repeat_question` is on. When repeats are off they are off, and the game stays quiet rather than finding a loophole to speak through.
 - After 3 minutes of no mouse movement or clicks: pause the session, dim to a calm sleep screen. Any mouse movement resumes it.
-- If `session_limit` is on and reached: finish the current round, then the "all done" screen. Never cut off mid-question.
+- If she wanders off entirely, the game waits on the sleep screen indefinitely. It never closes itself, never declares the session over, and never nags her back.
 
-## 6. Visual accessibility
+## 6. Warm-up activity
+
+Same cursor, same hover reaction, same sound palette as the quiz (`SPEC.md` §3). Everything below exists so the motor skill she builds here transfers directly.
+
+- **Background** is the quiz background, unchanged. She should recognise the place.
+- **Shapes** are simple, high-contrast, and about the size of a quiz card at n=4 (40% of screen height). Bubbles, stars, and simple animal silhouettes, drawn as vectors so they scale cleanly.
+- **Movement** is slow drift: 15–25 seconds to cross the screen, direction changing gently, bouncing softly off the 5% margin. Never fast enough to feel like a chase — a target that runs away teaches frustration, not aim.
+- **Separation**: shapes repel each other so two never overlap. Every click has one unambiguous owner.
+- **Hover** does exactly what a card does: scale to 108%, glow, tick sound.
+- **Click** pops the shape — a burst of particles, a bright pluck note, and a replacement fades in elsewhere 1.5s later. Clicking the background does nothing at all, silently.
+- **No voice, ever.** The only sounds are the hover tick, the pop, and the fade-in whoosh.
+- **No idle nudging** beyond the cursor's own idle animation. There is nothing to be stuck on here.
+
+## 7. Visual accessibility
 
 - **Never rely on colour alone** for any feedback. Every colour change is paired with a scale, motion, or sound change. Colour vision at 2 is fine, but the screen may also be viewed at an angle from a lap.
 - Contrast ratio ≥ 4.5:1 for card borders against the background.
