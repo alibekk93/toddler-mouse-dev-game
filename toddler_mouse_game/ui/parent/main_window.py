@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QW
 class MainWindow(QWidget):
     """Emits `start_activity` when a grown-up presses Play or Warm-up."""
 
-    start_activity = Signal()
+    start_activity = Signal(str)  # "quiz" or "warmup"
 
     def __init__(self) -> None:
         super().__init__()
@@ -29,12 +29,12 @@ class MainWindow(QWidget):
         layout.addWidget(heading)
         layout.addStretch(1)
 
-        # Both open the same blank kid window at M0; M2 gives the signal an activity.
-        for text in ("Play", "Warm-up"):
+        # The readiness check and the other five pages arrive at M3.
+        for text, activity in (("Play", "quiz"), ("Warm-up", "warmup")):
             button = QPushButton(text)
             button.setMinimumHeight(72)
             button.setStyleSheet("font-size: 18px;")
-            button.clicked.connect(self.start_activity)
+            button.clicked.connect(lambda _=False, a=activity: self.start_activity.emit(a))
             layout.addWidget(button)
 
         layout.addStretch(1)

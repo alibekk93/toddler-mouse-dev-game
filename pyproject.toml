@@ -21,6 +21,11 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["toddler_mouse_game*"]
 
+[tool.setuptools.package-data]
+# The cursor SVG and the sound effects are code, not content — they ship with the app.
+# Without this they are missing from a built wheel and from the M6 PyInstaller bundle.
+toddler_mouse_game = ["assets/**/*"]
+
 [tool.ruff]
 line-length = 100
 
