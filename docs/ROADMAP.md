@@ -10,7 +10,9 @@ Project scaffold in `toddler-mouse-dev-game/`, `pyproject.toml`, dependencies pi
 **Done when:** the mode switch works and the `Esc`-hold ring behaves.
 
 ## M1 — Library core (no UI)
-`core/library.py`, `core/importer.py`, `core/round_builder.py`. Full test suite from `ARCHITECTURE.md` §5. A CLI helper (`python -m toddler_mouse_game.tools.seed`) that imports a folder of images with tags from filenames, so a test library exists before any UI does.
+`core/library.py`, `core/importer.py`, `core/round_builder.py`. Full test suite from `ARCHITECTURE.md` §5. A CLI helper (`python -m toddler_mouse_game.tools.seed`) that imports folders of images and recordings, with tags passed on the command line — the CLI form of the staging tray's tag field (§4.2), never guessed from a filename. Its `--demo` mode generates a whole working library from nothing (shapes, colours, and placeholder tones), so a test library exists before any UI does.
+
+Audio normalisation (trim, peak-normalise) is **not** here: M1 adopts WAVs as-is and only measures them. It lands in M3 beside the recorder, which is its only caller and the only place a person can hear whether the trim ate a softly-spoken first word.
 
 **Done when:** `pytest` passes and a hand-built library folder loads, validates, and produces valid rounds on demand.
 

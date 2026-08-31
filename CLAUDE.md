@@ -17,6 +17,7 @@ python -m venv .venv && .venv\Scripts\activate                    # Windows
 pip install -e ".[dev]"
 python -m toddler_mouse_game --library ../library                 # parent mode, real content
 python -m toddler_mouse_game --kid --library ./testlib            # straight into kid mode, test content
+python -m toddler_mouse_game.tools.seed --library ./testlib --demo  # build a throwaway test library
 pytest                                                            # core tests, no display needed
 ruff check . && ruff format .
 ```

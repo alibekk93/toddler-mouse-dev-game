@@ -2,6 +2,12 @@
 
 import unicodedata
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+
+
+def utc_now() -> str:
+    """Manifest timestamp format, e.g. `2026-08-30T13:55:02Z` (DATA_MODEL §3)."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def normalise_tag(tag: str) -> str:

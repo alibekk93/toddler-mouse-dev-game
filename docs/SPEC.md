@@ -127,7 +127,9 @@ Adding images, all three routes must work:
 - **Drag and drop** onto the grid, including multiple files at once.
 - **Clipboard paste** (`Ctrl+V`) — both an image on the clipboard (screenshot, copied web image) and a file path on the clipboard.
 
-On import, every image is normalised (see `ARCHITECTURE.md` §4) and lands in a **staging tray** where the parent types tags before it joins the library. Bulk-tagging: select many, apply a tag to all — essential when you paste twelve dog pictures.
+On import, every image is normalised (see `ARCHITECTURE.md` §4) and lands in a **staging tray** where the parent types its tags before it joins the library: one free-text field, **comma-separated**, any script (`cat, animal` / `кошка`). Bulk-tagging: select many, type once, apply to all — essential when you paste twelve dog pictures.
+
+**Tags are only ever typed by a parent.** Nothing infers them from a filename or a folder name — files on disk are hash-named, and what a picture is called has nothing to do with what it is a picture of. Folder-name auto-tagging was considered and declined (`FUTURE_IDEAS.md`).
 
 Per-image actions: edit tags, set category, enable/disable, delete, replace.
 
