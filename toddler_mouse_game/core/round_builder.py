@@ -159,3 +159,38 @@ class RoundBuilder:
         self._recent_prompts.append(built.prompt.id)
         self._recent_images.append(built.correct.id)
         self._last_correct_index = built.correct_index
+
+
+def readiness(library: Library, settings: Settings) -> tuple[bool, str]:
+    """Can the quiz actually run? Returns (ok, a sentence fit to show a parent).
+
+    SPEC §4.1: if the library can't build rounds, only **Play** is disabled and the
+    reason is stated plainly. Warm-up needs no content and is never blocked.
+
+    The checks run cheapest-first and stop at the first thing that is actually wrong,
+    because a parent needs one next action, not a list.
+    """
+    builder = RoundBuilder(library, settings)
+    images = builder._usable_images()
+    questions = library.playable_sounds("question")
+    n = builder.option_count
+
+    if not images:
+        return False, "No pictures yet. Add some before playing."
+    if not questions:
+        return False, "No questions recorded yet. Record one before playing."
+    if len(images) < n:
+        return False, f"Only {len(images)} usable picture(s), but a round of {n} needs {n}."
+
+    if not builder._candidate_prompts():
+        orphaned = sorted({q.target_tag for q in questions if q.target_tag})
+        if orphaned:
+            return False, f"'{orphaned[0]}' has a question but no pictures."
+        return False, "No question has a tag, so nothing can be asked."
+
+    if builder.build() is None:
+        return False, (
+            f"Not enough different pictures to fill a round of {n} "
+            "without repeating the answer's tags."
+        )
+    return True, f"{len(images)} pictures, {len(questions)} questions - ready."

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from toddler_mouse_game.core.library import Library
 from toddler_mouse_game.core.models import Image, Settings, Sound
-from toddler_mouse_game.core.round_builder import RoundBuilder
+from toddler_mouse_game.core.round_builder import RoundBuilder, readiness
 
 ROUNDS = 200  # long enough that a rule broken once in a while still shows up
 
@@ -244,3 +244,56 @@ def test_enabled_categories_restricts_the_pool():
     )
     for built in run(builder, 40):
         assert all(o.category == "animals" for o in built.options)
+
+
+# -- readiness (SPEC §4.1) -------------------------------------------------
+
+
+def test_readiness_is_happy_with_a_workable_library():
+    ok, reason = readiness(basic(), Settings(option_count=2))
+    assert ok
+    assert "ready" in reason
+
+
+def test_readiness_reports_an_empty_library():
+    ok, reason = readiness(library([], []), Settings())
+    assert not ok
+    assert "No pictures" in reason
+
+
+def test_readiness_reports_pictures_but_no_questions():
+    images = [img("cat", ["cat"]), img("dog", ["dog"])]
+    ok, reason = readiness(library(images, []), Settings())
+    assert not ok
+    assert "No questions" in reason
+
+
+def test_readiness_names_the_tag_with_a_question_but_no_pictures():
+    images = [img("cat", ["cat"]), img("dog", ["dog"])]
+    ok, reason = readiness(library(images, [question("q", "truck")]), Settings())
+    assert not ok
+    assert "truck" in reason
+
+
+def test_readiness_reports_too_few_pictures_for_n():
+    images = [img("cat", ["cat"]), img("x", ["other"])]
+    ok, reason = readiness(library(images, [question("q", "cat")]), Settings(option_count=4))
+    assert not ok
+    assert "4" in reason
+
+
+def test_readiness_catches_a_library_that_only_fails_at_build_time():
+    # Two pictures, but they share every tag, so no distractor is ever legal.
+    images = [img("a", ["cat"]), img("b", ["cat"])]
+    ok, reason = readiness(library(images, [question("q", "cat")]), Settings(option_count=2))
+    assert not ok
+    assert "Not enough different pictures" in reason
+
+
+def test_readiness_does_not_disturb_the_real_session():
+    # It builds a throwaway round to test; that must not consume state.
+    lib = basic()
+    settings = Settings(option_count=2)
+    readiness(lib, settings)
+    builder = RoundBuilder(lib, settings, seed=1)
+    assert builder.build() is not None

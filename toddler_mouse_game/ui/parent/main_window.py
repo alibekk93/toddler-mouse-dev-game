@@ -27,17 +27,32 @@ class MainWindow(QWidget):
         heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
         heading.setStyleSheet("font-size: 24px; font-weight: 600;")
         layout.addWidget(heading)
+
+        self._status = QLabel("")
+        self._status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._status.setWordWrap(True)
+        self._status.setStyleSheet("color: #666;")
+        layout.addWidget(self._status)
         layout.addStretch(1)
 
-        # The readiness check and the other five pages arrive at M3.
+        # The other five pages arrive at M3.
+        self._buttons = {}
         for text, activity in (("Play", "quiz"), ("Warm-up", "warmup")):
             button = QPushButton(text)
             button.setMinimumHeight(72)
             button.setStyleSheet("font-size: 18px;")
             button.clicked.connect(lambda _=False, a=activity: self.start_activity.emit(a))
             layout.addWidget(button)
+            self._buttons[activity] = button
 
         layout.addStretch(1)
+
+    def set_readiness(self, ready: bool, reason: str) -> None:
+        """Only Play is ever disabled. Warm-up needs no content, so it always works —
+        including on the very first run, before a single picture has been added."""
+        self._buttons["quiz"].setEnabled(ready)
+        self._buttons["quiz"].setToolTip("" if ready else reason)
+        self._status.setText(reason)
 
     def closeEvent(self, event) -> None:
         super().closeEvent(event)

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import QApplication
 from .audio import player as player_mod
 from .core import library as library_mod
 from .core import settings as settings_mod
-from .core.round_builder import RoundBuilder
+from .core.round_builder import RoundBuilder, readiness
 from .platform import windows as hardening
 from .ui.kid.scene import KidScene
 from .ui.kid.session import QuizSession
@@ -72,11 +72,20 @@ def run(library_dir: Path, start_in_kid_mode: bool = False) -> int:
         for failure in hardening.failures():
             print(f"session hardening: {failure}")  # log it and carry on
 
+    def refresh_readiness() -> None:
+        """Play is disabled with a plain reason when no round can be built (SPEC §4.1).
+
+        Without this, pressing Play on a library with no content entered kid mode and
+        bounced straight back out, which looks exactly like the app being broken.
+        """
+        parent.set_readiness(*readiness(library, settings))
+
     def leave_kid() -> None:
         session.close()  # releases the display lock and unclips the cursor
         player.stop_all()
         if kid.isVisible():
             kid.hide()
+        refresh_readiness()
         parent.show()
         parent.raise_()
         parent.activateWindow()
@@ -85,8 +94,10 @@ def run(library_dir: Path, start_in_kid_mode: bool = False) -> int:
     kid.exited.connect(leave_kid)
     app.aboutToQuit.connect(hardening.release_all)  # belt, alongside the atexit hook
 
+    ok, _reason = readiness(library, settings)
+    refresh_readiness()
     if start_in_kid_mode:
-        enter_kid("quiz" if library.playable_images() else "warmup")
+        enter_kid("quiz" if ok else "warmup")
     else:
         parent.show()
 
