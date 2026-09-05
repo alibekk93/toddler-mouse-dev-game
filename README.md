@@ -45,6 +45,7 @@ buska-game/                        ← wrapper folder, NOT under version control
 │       ├── DATA_MODEL.md          ← folder layout, JSON schemas, validation
 │       ├── ARCHITECTURE.md        ← modules, libraries, threading, known traps
 │       ├── ROADMAP.md             ← milestones, in build order
+│       ├── BACKLOG.md             ← known bugs and gaps, meant to be fixed
 │       └── FUTURE_IDEAS.md        ← deliberately out of scope, with reasons
 └── library/                       ← the real content: her pictures and your voice
 ```

@@ -6,7 +6,7 @@ Project instructions for Claude Code sessions on **Where Is It?**
 
 An offline PySide6 desktop game that teaches a 2-year-old to use a mouse. A recorded parent voice asks "where is the cat?", n pictures appear, she clicks the cat. A second activity, warm-up, is cursor practice with no questions and no right answer. All content is parent-supplied: tagged images and recorded questions in a plain folder with a JSON manifest.
 
-Read `docs/SPEC.md` before changing behaviour, `docs/UX.md` before changing anything in kid mode, `docs/DATA_MODEL.md` before touching storage, `docs/ARCHITECTURE.md` before adding a dependency. `docs/ROADMAP.md` has the build order, and `docs/FUTURE_IDEAS.md` holds what is deliberately out of scope — if a request matches something in there, say so rather than building it.
+Read `docs/SPEC.md` before changing behaviour, `docs/UX.md` before changing anything in kid mode, `docs/DATA_MODEL.md` before touching storage, `docs/ARCHITECTURE.md` before adding a dependency. `docs/ROADMAP.md` has the build order, and `docs/FUTURE_IDEAS.md` holds what is deliberately out of scope — if a request matches something in there, say so rather than building it. `docs/BACKLOG.md` is the opposite list: known bugs and gaps that *are* meant to be fixed, just not yet scheduled. Add to it rather than fixing something unasked, and when a fix does land, delete its entry and update the spec doc it touches in the same commit.
 
 ## Commands
 
