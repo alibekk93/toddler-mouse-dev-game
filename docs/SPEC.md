@@ -131,7 +131,9 @@ On import, every image is normalised (see `ARCHITECTURE.md` §4) and lands in a 
 
 **Tags are only ever typed by a parent.** Nothing infers them from a filename or a folder name — files on disk are hash-named, and what a picture is called has nothing to do with what it is a picture of. Folder-name auto-tagging was considered and declined (`FUTURE_IDEAS.md`).
 
-Per-image actions: edit tags, set category, enable/disable, delete, replace.
+Per-image actions: edit tags, set category, enable/disable, delete. **Replace** was declined at M3 —
+ids are content hashes, so a replacement is a new entry however it is dressed up, and delete-to-trash
+plus add covers it (`FUTURE_IDEAS.md`).
 
 ### 4.3 Sounds
 Three lists: **Questions**, **Praise**, **Retry**.

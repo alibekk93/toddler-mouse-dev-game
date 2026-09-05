@@ -9,7 +9,8 @@
 | Kid-mode rendering | `QGraphicsView` / `QGraphicsScene` | Free transforms, z-order, `QPropertyAnimation` on items, hit testing. Exactly what animated cards and a sprite cursor need. |
 | Parent-mode UI | Plain `QWidget`s | |
 | Audio playback | `QSoundEffect` (QtMultimedia) | Low latency, no extra dependency, several sounds at once, ideal for short WAVs. |
-| Audio recording | `sounddevice` + `soundfile` + `numpy` | More predictable than `QMediaRecorder` on Windows, gives raw frames for the level meter and silence-trimming. |
+| Audio recording | `QAudioSource` (QtMultimedia) | Gives raw PCM frames for the level meter and silence-trimming, with no new dependency. The objection this table used to record was to `QMediaRecorder` — the high-level *encoder* — and it still stands; `QAudioSource` is the low-level half. Chosen at M3 over `sounddevice`+`soundfile`+`numpy`, which cost three dependencies and ~30MB of frozen build for frames we already get. If it proves flaky on Windows, `audio/recorder.py` is the only module to swap. |
+| Audio processing | stdlib `wave` + `array` | Trim and peak-normalisation are three passes over an int16 array (`core/importer.py`). Pure Python keeps `core/` Qt-free and numpy-free; ~0.2s for a 10s clip, run on a worker thread. |
 | Images | `Pillow` | Import-time normalisation only; Qt handles display. |
 | Packaging | PyInstaller, one-dir | |
 | Tests | `pytest` for `core/`, manual checklist for UI | |
@@ -27,7 +28,7 @@ toddler_mouse_game/
 ├── core/                  # zero Qt imports below this line
 │   ├── models.py          # Image, Sound, Settings dataclasses
 │   ├── library.py         # load/save/validate/repair library.json
-│   ├── importer.py        # image + audio normalisation (Pillow, soundfile)
+│   ├── importer.py        # image + audio normalisation (Pillow, stdlib wave)
 │   ├── round_builder.py   # round selection algorithm (SPEC §2.1)
 │   ├── settings.py        # settings.json load/save with defaults
 │   ├── backup.py          # library export/import as zip
@@ -53,7 +54,7 @@ toddler_mouse_game/
 │   └── windows.py         # session hardening ctypes calls, no-op elsewhere
 ├── audio/
 │   ├── player.py          # QSoundEffect pool, master volume cap, ducking
-│   └── recorder.py        # sounddevice stream, level meter, WAV writer
+│   └── recorder.py        # QAudioSource stream, level meter, WAV writer
 └── assets/
     ├── cursors/           # paw.svg, bee.svg, star.svg
     └── sfx/               # chime.wav, nudge.wav, pop.wav, whoosh.wav

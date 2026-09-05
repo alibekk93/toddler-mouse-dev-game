@@ -46,7 +46,7 @@ def run(library_dir: Path, start_in_kid_mode: bool = False) -> int:
 
     # Both windows are held in this frame, which app.exec() blocks inside — a Qt window
     # that only the C++ side references gets garbage collected out from under it.
-    parent = MainWindow()
+    parent = MainWindow(library, settings)
     kid = KidWindow()
     session = ExitStack()  # holds the SPEC §7 defences for the length of the session
 
@@ -72,20 +72,14 @@ def run(library_dir: Path, start_in_kid_mode: bool = False) -> int:
         for failure in hardening.failures():
             print(f"session hardening: {failure}")  # log it and carry on
 
-    def refresh_readiness() -> None:
-        """Play is disabled with a plain reason when no round can be built (SPEC §4.1).
-
-        Without this, pressing Play on a library with no content entered kid mode and
-        bounced straight back out, which looks exactly like the app being broken.
-        """
-        parent.set_readiness(*readiness(library, settings))
-
     def leave_kid() -> None:
         session.close()  # releases the display lock and unclips the cursor
         player.stop_all()
         if kid.isVisible():
             kid.hide()
-        refresh_readiness()
+        # Play is disabled with a plain reason when no round can be built (SPEC §4.1).
+        # The parent pages re-check this themselves whenever they change content.
+        parent.refresh()
         parent.show()
         parent.raise_()
         parent.activateWindow()
@@ -95,7 +89,6 @@ def run(library_dir: Path, start_in_kid_mode: bool = False) -> int:
     app.aboutToQuit.connect(hardening.release_all)  # belt, alongside the atexit hook
 
     ok, _reason = readiness(library, settings)
-    refresh_readiness()
     if start_in_kid_mode:
         enter_kid("quiz" if ok else "warmup")
     else:

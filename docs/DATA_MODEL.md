@@ -139,7 +139,8 @@ After writing, reopen the zip, run `testzip()`, and confirm the manifest inside 
 6. Reject anything over 50MB or with pathological dimensions before decoding — a malformed image should not take down the parent UI.
 
 **Audio** — on record or import:
-1. Mono, 48 kHz, 16-bit PCM WAV. Uncompressed and boring on purpose: instant playback, no codec dependency, trivially editable.
+1. Mono, 16-bit PCM WAV. Uncompressed and boring on purpose: instant playback, no codec dependency, trivially editable.
+   The recorder captures at 48 kHz; an **imported** file keeps its own sample rate rather than being resampled, since `QSoundEffect` plays any standard rate and a pure-Python resampler is a lot of code for a problem nobody has yet.
 2. Trim leading/trailing silence below −45 dBFS, leaving 80ms of padding.
 3. Peak-normalise to −3 dBFS so no recording is much louder than another.
 4. Cap length at 10s; a question longer than that is a different problem.

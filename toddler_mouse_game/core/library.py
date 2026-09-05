@@ -178,6 +178,18 @@ def enabled_tags(library: Library) -> set[str]:
     return {tag for image in library.playable_images() for tag in image.tags}
 
 
+def all_tags(library: Library) -> list[str]:
+    """Every tag the library knows about, sorted — the autocomplete source (SPEC §4.3).
+
+    Unlike `enabled_tags`, this includes tags carried only by disabled images and tags
+    only ever asked for: recording a second question for a tag whose pictures are
+    temporarily off must still autocomplete.
+    """
+    tags = {tag for image in library.images for tag in image.tags}
+    tags |= {s.target_tag for s in library.sounds if s.target_tag}
+    return sorted(tags)
+
+
 def validate(library: Library, option_count: int = 2) -> list[Issue]:
     """The DATA_MODEL §4 checks. Marks `broken`, and returns a warning per finding."""
     root = Path(library.root)
@@ -224,20 +236,22 @@ def validate(library: Library, option_count: int = 2) -> list[Issue]:
 # -- adding ----------------------------------------------------------------
 
 
-def add_image(
+def attach_image(
     library: Library,
-    src: Path,
+    entry: Image,
     tags: list[str] | None = None,
     category: str | None = None,
     label: str | None = None,
-    source: str = "file",
 ) -> Image:
-    """Import `src` and attach parent-supplied tags.
+    """Put an already-imported entry into the manifest with parent-supplied tags.
 
     The same picture added twice has the same content hash, so its tags are merged
     into the existing entry instead of duplicating it (DATA_MODEL §4).
+
+    Split out from `add_image` so the parent UI can run the expensive half — decode and
+    re-encode, in `import_image` — on a worker thread and touch the manifest only here,
+    on the UI thread (ARCHITECTURE §4.5).
     """
-    entry = import_image(src, library.root, source=source)
     entry.tags = normalise_tags(tags or [])
     entry.category = category
     entry.label = label
@@ -251,6 +265,52 @@ def add_image(
 
     library.images.append(entry)
     return entry
+
+
+def add_image(
+    library: Library,
+    src: Path,
+    tags: list[str] | None = None,
+    category: str | None = None,
+    label: str | None = None,
+    source: str = "file",
+) -> Image:
+    """Import `src` and attach parent-supplied tags."""
+    entry = import_image(src, library.root, source=source)
+    return attach_image(library, entry, tags, category, label)
+
+
+def _to_trash(root: Path, relative: str) -> None:
+    """Move one library file into `_trash/`, keeping its subfolder (DATA_MODEL §1).
+
+    Nothing here ever unlinks. A name already taken in the trash — the same picture
+    deleted, re-added, and deleted again — gets a suffix rather than overwriting the
+    earlier copy, which would be a deletion by another name.
+    """
+    source = Path(root) / relative
+    if not source.is_file():
+        return
+    destination = Path(root) / "_trash" / relative
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    counter = 2
+    while destination.exists():
+        destination = destination.with_name(f"{destination.stem}-{counter}{destination.suffix}")
+        counter += 1
+    os.replace(source, destination)
+
+
+def remove_image(library: Library, image: Image) -> None:
+    """Drop an image from the manifest and move its files to `_trash/`."""
+    for relative in (image.file, image.thumb):
+        if relative:
+            _to_trash(library.root, relative)
+    library.images = [i for i in library.images if i is not image]
+
+
+def remove_sound(library: Library, sound: Sound) -> None:
+    """Drop a recording from the manifest and move its file to `_trash/`."""
+    _to_trash(library.root, sound.file)
+    library.sounds = [s for s in library.sounds if s is not sound]
 
 
 def add_sound(
@@ -268,7 +328,10 @@ def add_sound(
         target_tag=normalise_tag(target_tag) if target_tag else None,
         label=label,
     )
-    existing = next((s for s in library.sounds if s.id == entry.id), None)
+    # Ids are only unique *within* a kind, because each kind has its own folder on disk
+    # (DATA_MODEL §2). Matching on id alone would drop a clip imported as both a question
+    # and a praise line, leaving the file it just wrote orphaned in the other folder.
+    existing = next((s for s in library.sounds if s.id == entry.id and s.kind == kind), None)
     if existing is not None:
         return existing
     library.sounds.append(entry)

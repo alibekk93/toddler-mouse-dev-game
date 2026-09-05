@@ -38,5 +38,6 @@ Recorded so they don't get re-proposed and re-declined every few months:
 
 - **Invisible hit padding around cards** — enlarging the clickable area beyond the drawn card. Declined for now; revisit if near-misses turn out to be common in real play.
 - **Folder-name auto-tagging on import** (`animals/cat/*.jpg` → tags `cat`, `animals`). Declined; manual tagging is fine at the library sizes expected.
+- **Replace, as a per-image action** — swapping the file behind an existing entry. Declined at M3: `id` is the hash of the normalised bytes, so a replacement is a different entry by definition, and delete-to-trash plus add is the same two clicks without a code path that pretends otherwise.
 - **Guided add flow** — prompting to record a question immediately after tagging a new image.
 - **Subject isolation on import** — background removal so a cat on a busy sofa reads as cleanly as a cat on white. Declined mainly on dependency weight.

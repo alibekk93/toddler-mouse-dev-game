@@ -215,3 +215,64 @@ def test_a_russian_question_matches_its_russian_pictures(tmp_path):
     lib.add_image(library, make_image(tmp_path / "cat.jpg"), tags=["кошка"])
     lib.add_sound(library, make_wav(tmp_path / "q.wav"), "question", target_tag="КОШКА")
     assert "question_without_images" not in codes(lib.validate(library))
+
+
+# -- deletion and tag listing ----------------------------------------------
+
+
+def test_deleting_an_image_moves_it_to_trash_and_never_unlinks(tmp_path):
+    library = seeded(tmp_path)
+    image = library.images[0]
+    lib.remove_image(library, image)
+
+    assert library.image_by_id(image.id) is None
+    assert not (library.root / image.file).exists()
+    assert (library.root / "_trash" / image.file).is_file()
+    assert (library.root / "_trash" / image.thumb).is_file()
+
+
+def test_deleting_a_recording_moves_it_to_trash(tmp_path):
+    library = seeded(tmp_path)
+    sound = library.sounds[0]
+    lib.remove_sound(library, sound)
+
+    assert library.sounds == []
+    assert (library.root / "_trash" / sound.file).is_file()
+
+
+def test_trashing_the_same_name_twice_keeps_both(tmp_path):
+    """Delete, re-add, delete again: the second must not overwrite the first in the
+    trash, which would be a deletion by another name."""
+    library = seeded(tmp_path)
+    source = make_image(tmp_path / "cat.jpg", colour=(10, 20, 30))
+    first = library.images[0]
+    lib.remove_image(library, first)
+    lib.remove_image(library, lib.add_image(library, source, tags=["cat"]))
+
+    trashed = sorted(p.name for p in (library.root / "_trash" / "images").iterdir())
+    assert len(trashed) == 2
+
+
+def test_all_tags_includes_disabled_pictures_and_unanswered_questions(tmp_path):
+    library = seeded(tmp_path)
+    library.images[0].enabled = False
+    lib.add_sound(
+        library, make_wav(tmp_path / "q2.wav", frequency=300.0), "question", target_tag="truck"
+    )
+
+    assert "cat" in lib.all_tags(library)  # disabled, but still a tag you can record for
+    assert "truck" in lib.all_tags(library)  # asked for, no pictures yet
+    assert lib.all_tags(library) == sorted(lib.all_tags(library))
+
+
+def test_the_same_clip_can_be_both_a_question_and_a_praise_line(tmp_path):
+    """Ids are unique within a kind, not across them — each kind has its own folder.
+    Matching on id alone dropped the second entry and orphaned the file it had written."""
+    library = lib.Library(root=tmp_path / "lib")
+    source = make_wav(tmp_path / "yes.wav")
+    question = lib.add_sound(library, source, "question", target_tag="cat")
+    praise = lib.add_sound(library, source, "praise")
+
+    assert question.id == praise.id  # same audio, so the same content hash
+    assert [s.kind for s in library.sounds] == ["question", "praise"]
+    assert "orphan_file" not in codes(lib.validate(library))

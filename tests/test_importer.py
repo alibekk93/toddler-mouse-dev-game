@@ -1,11 +1,30 @@
-"""Image normalisation and audio adoption (DATA_MODEL §8). No display needed."""
+"""Image and audio normalisation (DATA_MODEL §8). No display needed."""
+
+import hashlib
+import wave
+from array import array
+from io import BytesIO
 
 import pytest
 from conftest import make_image, make_wav
 from PIL import Image as PILImage
 
 from toddler_mouse_game.core import importer
-from toddler_mouse_game.core.importer import ImportRejected, adopt_audio, import_image
+from toddler_mouse_game.core.importer import (
+    ImportRejected,
+    adopt_audio,
+    import_image,
+    normalise_audio,
+)
+
+
+def read_samples(data: bytes) -> tuple[array, int, int, int]:
+    """Unpack normalised WAV bytes into (samples, rate, channels, sampwidth)."""
+    with wave.open(BytesIO(data), "rb") as handle:
+        samples = array("h")
+        samples.frombytes(handle.readframes(handle.getnframes()))
+        return samples, handle.getframerate(), handle.getnchannels(), handle.getsampwidth()
+
 
 # -- EXIF ------------------------------------------------------------------
 
@@ -156,3 +175,80 @@ def test_non_wav_is_rejected(tmp_path):
     src.write_bytes(b"this is not a wav file")
     with pytest.raises(ImportRejected, match="readable WAV"):
         adopt_audio(src, tmp_path / "lib", "praise")
+
+
+# -- audio normalisation (DATA_MODEL §8) -----------------------------------
+
+
+def test_silence_is_trimmed_leaving_padding(tmp_path):
+    src = make_wav(tmp_path / "q.wav", ms=400, silence_ms=300)
+    data, duration_ms = normalise_audio(src)
+
+    # 300ms of silence each side collapses to the 80ms of padding each side.
+    assert duration_ms == pytest.approx(400 + 2 * importer.TRIM_PAD_MS, abs=5)
+    samples, *_ = read_samples(data)
+    assert len(samples) == pytest.approx(duration_ms * 48, abs=250)
+
+
+def test_a_quiet_recording_is_brought_up_to_target(tmp_path):
+    src = make_wav(tmp_path / "quiet.wav", amplitude=1_500)
+    samples, *_ = read_samples(normalise_audio(src)[0])
+    assert max(abs(s) for s in samples) == pytest.approx(importer.TARGET_PEAK, abs=2)
+
+
+def test_a_loud_recording_is_brought_down_and_never_clips(tmp_path):
+    src = make_wav(tmp_path / "loud.wav", amplitude=32_000)
+    samples, *_ = read_samples(normalise_audio(src)[0])
+    assert max(abs(s) for s in samples) == pytest.approx(importer.TARGET_PEAK, abs=2)
+    assert all(-32768 <= s <= 32767 for s in samples)
+
+
+def test_stereo_24bit_becomes_mono_16bit_at_the_source_rate(tmp_path):
+    # 44.1kHz is kept, not resampled — see the ponytail note in normalise_audio.
+    src = make_wav(tmp_path / "stereo.wav", rate=44_100, channels=2, width=3)
+    samples, rate, channels, width = read_samples(normalise_audio(src)[0])
+    assert (rate, channels, width) == (44_100, 1, 2)
+    assert max(abs(s) for s in samples) == pytest.approx(importer.TARGET_PEAK, abs=2)
+
+
+def test_eight_bit_source_is_accepted(tmp_path):
+    src = make_wav(tmp_path / "old.wav", width=1)
+    samples, _, channels, width = read_samples(normalise_audio(src)[0])
+    assert (channels, width) == (1, 2)
+    assert max(abs(s) for s in samples) > 0
+
+
+def test_a_recording_over_the_cap_is_rejected_not_truncated(tmp_path):
+    src = make_wav(tmp_path / "long.wav", ms=importer.MAX_AUDIO_MS + 500)
+    with pytest.raises(ImportRejected, match="the limit is 10s"):
+        normalise_audio(src)
+
+
+def test_silent_input_stays_a_valid_wav(tmp_path):
+    src = make_wav(tmp_path / "silent.wav", ms=300, amplitude=0)
+    data, duration_ms = normalise_audio(src)
+    samples, *_ = read_samples(data)
+    assert duration_ms == 300  # nothing crosses the floor, so nothing is trimmed away
+    assert set(samples) == {0}
+
+
+def test_the_id_is_the_hash_of_the_normalised_bytes(tmp_path):
+    src = make_wav(tmp_path / "quiet.wav", amplitude=1_500, silence_ms=200)
+    entry = adopt_audio(src, tmp_path / "lib", "praise")
+
+    written = (tmp_path / "lib" / entry.file).read_bytes()
+    assert written != src.read_bytes()  # normalised on the way in, not copied
+    assert hashlib.sha256(written).hexdigest().startswith(entry.id)
+
+    # And the same source adopted twice is still one file on disk.
+    assert adopt_audio(src, tmp_path / "lib", "praise").id == entry.id
+    assert len(list((tmp_path / "lib" / "audio" / "praise").iterdir())) == 1
+
+
+def test_normalising_twice_is_idempotent(tmp_path):
+    """The record dialog normalises on stop and `adopt_audio` normalises again on Keep."""
+    src = make_wav(tmp_path / "take.wav", ms=400, silence_ms=200)
+    once, _ = normalise_audio(src)
+    (tmp_path / "once.wav").write_bytes(once)
+    twice, _ = normalise_audio(tmp_path / "once.wav")
+    assert once == twice
