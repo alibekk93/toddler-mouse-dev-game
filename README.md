@@ -55,6 +55,32 @@ Point the Claude Code session at `toddler-mouse-dev-game/`, not at `buska-game/`
 
 Read order for a fresh Claude Code session: `CLAUDE.md` → `docs/ROADMAP.md` → `docs/SPEC.md` → whichever of `docs/UX.md` / `docs/DATA_MODEL.md` / `docs/ARCHITECTURE.md` the current milestone touches.
 
+## Running it
+
+Python 3.11+, from the repo root:
+
+```bash
+python -m venv .venv && .venv\Scripts\activate      # Windows
+pip install -e ".[dev]"
+
+python -m toddler_mouse_game.tools.seed --library ./testlib --demo   # throwaway content
+python -m toddler_mouse_game --library ./testlib                     # start here
+```
+
+Day to day it's `--library ../library`, the real folder beside the repo. `pytest` runs the
+core tests with no display; `ruff check . && ruff format .` before committing.
+
+The app opens in parent mode. **Warm-up** plays on a completely empty library; **Play** is
+disabled until there are pictures and a question for one of them, and says which is
+missing. Add pictures on the **Pictures** page — file dialog, drag and drop, or `Ctrl+V` —
+type their tags in the tray at the bottom, then record the questions on the **Sounds**
+page. Hold `Esc` for 3 seconds to leave kid mode.
+
+Built so far: M0–M3 of `docs/ROADMAP.md`. Still to come are the polish pass (M4) and the
+Settings, Progress, and Backup pages (M5), so the nav has three entries rather than six.
+Recording needs a microphone — without one the record button is disabled and explains
+itself, and importing a `.wav` still works.
+
 ## Fixed constraints
 
 These are settled, not open questions. Build against them.
