@@ -14,7 +14,7 @@ from pathlib import Path
 from .importer import AUDIO_DIRS, adopt_audio, import_image
 from .models import Image, Sound, normalise_tag, normalise_tags, utc_now
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 2: an image's `category` string became a `categories` list
 MANIFEST = "library.json"
 BACKUP = "library.json.bak"
 
@@ -59,6 +59,22 @@ def _entry(cls, raw: dict):
     return cls(**{k: v for k, v in raw.items() if k in known})
 
 
+def _migrate_image(raw: dict) -> dict:
+    """Schema 1 -> 2: one `category` string becomes a `categories` list.
+
+    This has to run *before* `_entry`, which keeps only fields the dataclass declares —
+    an un-migrated `category` would be dropped there and then lost for good on the next
+    save, which is exactly the kind of quiet data loss CLAUDE.md rule 5 is about.
+    """
+    old = raw.get("category")
+    if old is None:
+        return raw
+    migrated = {k: v for k, v in raw.items() if k != "category"}
+    # A manifest carrying both keys was written by a newer build; its list wins.
+    migrated.setdefault("categories", [old] if isinstance(old, str) and old.strip() else [])
+    return migrated
+
+
 def _parse(root: Path, data: dict) -> tuple[Library, list[Issue]]:
     library = Library(root=root)
     issues: list[Issue] = []
@@ -68,7 +84,7 @@ def _parse(root: Path, data: dict) -> tuple[Library, list[Issue]]:
     ):
         for raw in data.get(key, []) or []:
             try:
-                entry = _entry(cls, raw)
+                entry = _entry(cls, _migrate_image(raw) if cls is Image else raw)
             except (TypeError, ValueError):
                 issues.append(Issue("unreadable_entry", f"skipped an unreadable {key[:-1]} entry"))
                 continue
@@ -77,6 +93,7 @@ def _parse(root: Path, data: dict) -> tuple[Library, list[Issue]]:
                 continue
             if isinstance(entry, Image):
                 entry.tags = normalise_tags(entry.tags)
+                entry.categories = normalise_tags(entry.categories)
             else:
                 entry.target_tag = normalise_tag(entry.target_tag) if entry.target_tag else None
             target.append(entry)
@@ -240,26 +257,28 @@ def attach_image(
     library: Library,
     entry: Image,
     tags: list[str] | None = None,
-    category: str | None = None,
+    categories: list[str] | None = None,
     label: str | None = None,
 ) -> Image:
     """Put an already-imported entry into the manifest with parent-supplied tags.
 
     The same picture added twice has the same content hash, so its tags are merged
-    into the existing entry instead of duplicating it (DATA_MODEL §4).
+    into the existing entry instead of duplicating it (DATA_MODEL §4). Categories merge
+    the same way: adding a yellow square again as a `shapes` picture should leave it in
+    both categories, not pick one.
 
     Split out from `add_image` so the parent UI can run the expensive half — decode and
     re-encode, in `import_image` — on a worker thread and touch the manifest only here,
     on the UI thread (ARCHITECTURE §4.5).
     """
     entry.tags = normalise_tags(tags or [])
-    entry.category = category
+    entry.categories = normalise_tags(categories or [])
     entry.label = label
 
     existing = library.image_by_id(entry.id)
     if existing is not None:
         existing.tags = normalise_tags([*existing.tags, *entry.tags])
-        existing.category = existing.category or category
+        existing.categories = normalise_tags([*existing.categories, *entry.categories])
         existing.label = existing.label or label
         return existing
 
@@ -271,13 +290,13 @@ def add_image(
     library: Library,
     src: Path,
     tags: list[str] | None = None,
-    category: str | None = None,
+    categories: list[str] | None = None,
     label: str | None = None,
     source: str = "file",
 ) -> Image:
     """Import `src` and attach parent-supplied tags."""
     entry = import_image(src, library.root, source=source)
-    return attach_image(library, entry, tags, category, label)
+    return attach_image(library, entry, tags, categories, label)
 
 
 def _to_trash(root: Path, relative: str) -> None:

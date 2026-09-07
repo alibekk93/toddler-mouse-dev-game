@@ -98,13 +98,13 @@ def _seed_demo(library, scratch: Path) -> None:
         for index, shape in enumerate(("circle", "square")):
             path = scratch / f"colour-{name}-{index}.png"
             _draw(path, shape, rgb)
-            library_mod.add_image(library, path, tags=[name], category="colours")
+            library_mod.add_image(library, path, tags=[name], categories=["colours"])
 
     for name in DEMO_SHAPES:
         for index, shade in enumerate((DEMO_GREY, (70, 70, 78))):
             path = scratch / f"shape-{name}-{index}.png"
             _draw(path, name, shade)
-            library_mod.add_image(library, path, tags=[name], category="shapes")
+            library_mod.add_image(library, path, tags=[name], categories=["shapes"])
 
     for tag, frequency in DEMO_TONES.items():
         path = scratch / f"q-{tag}.wav"
@@ -148,7 +148,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--library", type=Path, required=True, help="library folder to write into")
     parser.add_argument("--images", type=Path, help="folder of pictures to import")
     parser.add_argument("--tags", default="", help="comma-separated tags for every --images file")
-    parser.add_argument("--category", help="category for every --images file")
+    parser.add_argument(
+        "--categories", default="", help="comma-separated categories for every --images file"
+    )
     parser.add_argument("--questions", type=Path, help="folder of question WAVs")
     parser.add_argument("--target-tag", help="the tag every --questions file asks for")
     parser.add_argument("--praise", type=Path, help="folder of praise WAVs")
@@ -178,9 +180,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.images:
         tags = normalise_tags(args.tags.split(","))
+        categories = normalise_tags(args.categories.split(","))
         for path in _files(args.images, IMAGE_SUFFIXES):
             try:
-                library_mod.add_image(library, path, tags=tags, category=args.category)
+                library_mod.add_image(library, path, tags=tags, categories=categories)
             except ImportRejected as exc:
                 print(f"  skipped {path.name}: {exc}")
 

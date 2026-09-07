@@ -46,6 +46,7 @@ toddler_mouse_game/
 │       ├── main_window.py # nav shell
 │       ├── play_page.py   # Play + Warm-up buttons, readiness, backup reminder
 │       ├── images_page.py # grid, drag-drop, paste, staging tray, bulk tag
+│       ├── crop_dialog.py # drag a crop rectangle before the picture is written
 │       ├── sounds_page.py # record/playback/trim, target-tag picker
 │       ├── settings_page.py
 │       ├── progress_page.py
@@ -118,7 +119,7 @@ Unit tests (`pytest`, no display needed) for:
 - Tag handling: casefold and NFC normalisation on Cyrillic and accented Latin tags, round-trip through `library.json` with `ensure_ascii=False`, matching a Russian tag against a question recorded for it.
 
 Manual checklist for kid mode (a human has to look at it):
-`hover reaction is instant` · `wrong click feels gentle, not punishing` · `question is audible over a running dishwasher` · `repeats never talk over each other` · `repeats off means genuinely silent` · `Esc hold ring is visible` · `Alt+Tab pauses` · `display never sleeps mid-session` · `cursor cannot leave the window` · `five Shift presses do nothing` · `all three released after a forced kill` · `nothing on screen invites a click except the cards`.
+`hover reaction is instant` · `wrong click feels gentle, not punishing` · `question is audible over a running dishwasher` · `repeats never talk over each other` · `repeats off means genuinely silent` · `Esc hold ring is visible` · `Alt+Tab pauses` · `display never sleeps mid-session` · `cursor cannot leave the window` · `five Shift presses do nothing` · `all three released after a forced kill` · `a click during the question cuts it and answers immediately` · `nothing on screen invites a click except the cards`.
 
 ## 6. Performance targets
 

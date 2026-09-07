@@ -73,11 +73,30 @@ def _is_transparent(img: PILImage.Image) -> bool:
     return False
 
 
-def normalise_image(src: Path) -> tuple[bytes, bytes, str, int, int]:
+def _crop_box(crop, width: int, height: int) -> tuple[int, int, int, int]:
+    """A fractional (left, top, right, bottom) box in pixels of a `width` x `height` image.
+
+    Fractions rather than pixels so the caller never needs the decoded size — the crop
+    dialog works from a preview scaled to fit a window, and the same numbers apply to the
+    full-resolution original.
+    """
+    left, top, right, bottom = (max(0.0, min(1.0, float(v))) for v in crop)
+    box = (round(left * width), round(top * height), round(right * width), round(bottom * height))
+    if box[2] - box[0] < 1 or box[3] - box[1] < 1:
+        raise ImportRejected("that crop is empty — drag a bigger rectangle")
+    return box
+
+
+def normalise_image(src: Path, crop=None) -> tuple[bytes, bytes, str, int, int]:
     """Run DATA_MODEL §8 and return (image_bytes, thumb_bytes, extension, w, h).
 
     Nothing is written to disk here, which is what lets the caller hash the normalised
-    bytes and only then decide where they go.
+    bytes and only then decide where they go — and what lets the parent re-crop a picture
+    in the staging tray without leaving a half-imported file behind.
+
+    `crop` is an optional fractional (left, top, right, bottom) box, applied after the
+    EXIF orientation and before the downscale, so a crop of a corner keeps that corner's
+    full detail instead of a quarter of an already-shrunken image.
     """
     src = Path(src)
     try:
@@ -107,6 +126,9 @@ def normalise_image(src: Path) -> tuple[bytes, bytes, str, int, int]:
     transparent = _is_transparent(img)
     img = img.convert("RGBA" if transparent else "RGB")
 
+    if crop is not None:
+        img = img.crop(_crop_box(crop, img.width, img.height))
+
     img.thumbnail((MAX_EDGE, MAX_EDGE), PILImage.LANCZOS)  # thumbnail() never enlarges
 
     buffer = BytesIO()
@@ -125,10 +147,21 @@ def normalise_image(src: Path) -> tuple[bytes, bytes, str, int, int]:
     return buffer.getvalue(), thumb_buffer.getvalue(), extension, img.width, img.height
 
 
-def import_image(src: Path, library_root: Path, source: str = "file") -> Image:
-    """Normalise `src` into the library and return an untagged `Image` entry."""
-    data, thumb_data, extension, width, height = normalise_image(src)
+def write_image(
+    library_root: Path,
+    data: bytes,
+    thumb_data: bytes,
+    extension: str,
+    width: int,
+    height: int,
+    source: str = "file",
+) -> Image:
+    """Put already-normalised bytes into the library and return an untagged entry.
 
+    Split from `normalise_image` so the parent UI can hold a picture in the staging tray,
+    re-crop it as often as the parent likes, and write exactly one file at the end — the
+    same split as `library.attach_image` for the manifest side.
+    """
     root = Path(library_root)
     images_dir = root / "images"
     thumbs_dir = root / "thumbs"
@@ -149,6 +182,11 @@ def import_image(src: Path, library_root: Path, source: str = "file") -> Image:
         width=width,
         height=height,
     )
+
+
+def import_image(src: Path, library_root: Path, source: str = "file", crop=None) -> Image:
+    """Normalise `src` into the library and return an untagged `Image` entry."""
+    return write_image(library_root, *normalise_image(src, crop=crop), source=source)
 
 
 # -- audio -----------------------------------------------------------------

@@ -10,14 +10,19 @@ join the library only once someone has typed something.
 they run on `QThreadPool` and report back by signal (ARCHITECTURE §4.5).
 """
 
+import hashlib
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QThreadPool, Signal
-from PySide6.QtGui import QIcon, QImage, QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QImage, QKeySequence, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -33,11 +38,33 @@ from PySide6.QtWidgets import (
 )
 
 from ...core import library as library_mod
-from ...core.importer import ImportRejected, import_image
+from ...core.importer import ImportRejected, normalise_image, write_image
 from ...core.library import IMAGE_SUFFIXES, Library
-from ...core.models import Image, normalise_tags
+from ...core.models import Image, Settings, normalise_tags
+from .crop_dialog import CropDialog
 
 THUMB = QSize(140, 140)
+
+
+@dataclass
+class _Pending:
+    """A picture normalised but not yet written: what the staging tray holds.
+
+    Keyed by `seq`, not by content hash, so a re-crop replaces the tray entry it came
+    from even though its bytes — and therefore its future id — have changed.
+    """
+
+    seq: int
+    source: Path
+    origin: str  # file | drop | clipboard
+    data: bytes
+    thumb: bytes
+    extension: str
+    width: int
+    height: int
+    digest: str
+    crop: tuple | None = None
+    tags: list[str] = field(default_factory=list)
 
 
 def _grid(selectable: bool = True) -> QListWidget:
@@ -61,12 +88,14 @@ class ImagesPage(QWidget):
     _imported = Signal(object)  # an untagged Image, from a worker thread
     _rejected = Signal(str)
 
-    def __init__(self, library: Library, save) -> None:
+    def __init__(self, library: Library, settings: Settings, save, save_settings) -> None:
         super().__init__()
         self._library = library
+        self._settings = settings
         self._save = save
-        self._pending: list[Image] = []
-        self._pending_tags: dict[str, list[str]] = {}
+        self._save_settings = save_settings
+        self._pending: list[_Pending] = []
+        self._sequence = 0
         self._scratch = tempfile.TemporaryDirectory(prefix="buska-paste-")
         self._pastes = 0
 
@@ -91,10 +120,14 @@ class ImagesPage(QWidget):
         top.addWidget(add)
         top.addWidget(QLabel("or drag them in, or paste with Ctrl+V"))
         top.addStretch(1)
+        matching = QPushButton("Category matching…")
+        matching.setToolTip("Which categories may only be compared with their own kind")
+        matching.clicked.connect(self._edit_strict_categories)
+        top.addWidget(matching)
         self._selection_buttons = []
         for text, slot in (
             ("Edit tags…", self._edit_tags),
-            ("Set category…", self._edit_category),
+            ("Categories…", self._edit_category),
             ("Enable / disable", self._toggle_enabled),
             ("Delete", self._delete),
         ):
@@ -125,6 +158,7 @@ class ImagesPage(QWidget):
 
         self._tray_grid = _grid()
         self._tray_grid.setFixedHeight(THUMB.height() + 70)
+        self._tray_grid.itemSelectionChanged.connect(self._sync_tray_buttons)
         inner.addWidget(self._tray_grid)
 
         row = QHBoxLayout()
@@ -133,9 +167,9 @@ class ImagesPage(QWidget):
         self._tags_field.setPlaceholderText("comma-separated, any language: cat, animal / кошка")
         self._tags_field.returnPressed.connect(self._apply_tags)
         row.addWidget(self._tags_field, 2)
-        row.addWidget(QLabel("Category:"))
+        row.addWidget(QLabel("Categories:"))
         self._category_field = QLineEdit()
-        self._category_field.setPlaceholderText("optional: animals")
+        self._category_field.setPlaceholderText("optional: colours, shapes")
         row.addWidget(self._category_field, 1)
         inner.addLayout(row)
 
@@ -144,6 +178,10 @@ class ImagesPage(QWidget):
         apply_to.setToolTip("Tag part of the tray differently — twelve dogs and three cats.")
         apply_to.clicked.connect(self._apply_tags)
         buttons.addWidget(apply_to)
+        self._crop_button = QPushButton("Crop…")
+        self._crop_button.setToolTip("Cut a picture down to the part that matters")
+        self._crop_button.clicked.connect(self._crop_selected)
+        buttons.addWidget(self._crop_button)
         buttons.addStretch(1)
         discard = QPushButton("Discard")
         discard.clicked.connect(self._discard_pending)
@@ -234,61 +272,132 @@ class ImagesPage(QWidget):
             f"Adding {len(wanted)} picture(s)…" + (f" ({skipped} skipped)" if skipped else "")
         )
         for path in wanted:
-            QThreadPool.globalInstance().start(lambda p=path: self._import_one(p, source))
+            self._sequence += 1
+            self._normalise(self._sequence, path, source)
 
-    def _import_one(self, path: Path, source: str) -> None:
-        """Worker thread: decode, downscale, thumbnail, write. No manifest touching."""
+    def _normalise(self, seq: int, path: Path, source: str, crop=None) -> None:
+        QThreadPool.globalInstance().start(lambda: self._normalise_one(seq, path, source, crop))
+
+    def _normalise_one(self, seq: int, path: Path, source: str, crop) -> None:
+        """Worker thread: decode, crop, downscale, thumbnail. Writes nothing.
+
+        The file lands on disk only when the parent presses Add to library, which is what
+        makes cropping free — and what makes Discard a true discard, with no half-imported
+        picture left behind for validation to find later.
+        """
         try:
-            entry = import_image(path, self._library.root, source=source)
+            data, thumb, extension, width, height = normalise_image(path, crop=crop)
         except ImportRejected as exc:
             self._rejected.emit(str(exc))
             return
-        self._imported.emit(entry)
+        self._imported.emit(
+            _Pending(
+                seq=seq,
+                source=Path(path),
+                origin=source,
+                data=data,
+                thumb=thumb,
+                extension=extension,
+                width=width,
+                height=height,
+                digest=hashlib.sha256(data).hexdigest(),
+                crop=crop,
+            )
+        )
 
     # -- the staging tray --------------------------------------------------
 
-    def _on_imported(self, entry: Image) -> None:
-        if any(pending.id == entry.id for pending in self._pending):
-            return  # the same file dropped twice in one batch
-        existing = self._library.image_by_id(entry.id)
-        if existing is not None:
-            # Same content hash: this picture is already here. Its tray tags start from
-            # the ones it already has, so adding merges rather than duplicating.
-            self._pending_tags[entry.id] = list(existing.tags)
-        self._pending.append(entry)
+    def _on_imported(self, pending: "_Pending") -> None:
+        replacing = next((p for p in self._pending if p.seq == pending.seq), None)
+        if replacing is not None:  # a re-crop of something already in the tray
+            pending.tags = replacing.tags
+            self._pending[self._pending.index(replacing)] = pending
+        else:
+            if any(p.digest == pending.digest for p in self._pending):
+                return  # the same file dropped twice in one batch
+            existing = self._existing_for(pending.digest)
+            if existing is not None:
+                # Same content hash: this picture is already here. Its tray tags start
+                # from the ones it has, so adding merges rather than duplicating.
+                pending.tags = list(existing.tags)
+            self._pending.append(pending)
         self._reload_tray()
         self._tags_field.setFocus()
 
+    def _existing_for(self, digest: str) -> Image | None:
+        """The library entry for these bytes, if there is one.
+
+        Matched by prefix rather than equality: an id is normally the first 8 hex chars
+        of the digest but extends on a genuine collision (DATA_MODEL §3).
+        """
+        return next((i for i in self._library.images if digest.startswith(i.id)), None)
+
     def _reload_tray(self) -> None:
         self._tray_grid.clear()
-        for entry in self._pending:
-            tags = self._pending_tags.get(entry.id, [])
-            item = QListWidgetItem(", ".join(tags) or "(needs tags)")
-            item.setData(Qt.ItemDataRole.UserRole, entry.id)
-            item.setIcon(QIcon(str(Path(self._library.root) / entry.thumb)))
+        for pending in self._pending:
+            caption = ", ".join(pending.tags) or "(needs tags)"
+            item = QListWidgetItem(f"{caption}\n(cropped)" if pending.crop else caption)
+            item.setData(Qt.ItemDataRole.UserRole, pending.seq)
+            pixmap = QPixmap()
+            pixmap.loadFromData(pending.thumb)
+            item.setIcon(QIcon(pixmap))
             self._tray_grid.addItem(item)
         self._tray.setVisible(bool(self._pending))
         self._tray.setTitle(f"{len(self._pending)} new picture(s) — type their tags")
+        self._sync_tray_buttons()
+
+    def _selected_pending(self) -> list["_Pending"]:
+        chosen = {i.data(Qt.ItemDataRole.UserRole) for i in self._tray_grid.selectedItems()}
+        return [p for p in self._pending if p.seq in chosen]
+
+    def _sync_tray_buttons(self) -> None:
+        self._crop_button.setEnabled(len(self._selected_pending()) == 1)
+
+    def _crop_selected(self) -> None:
+        """Crop before the picture joins the library, never after: the id is the hash of
+        the normalised bytes, so a crop applied later would be a different picture."""
+        chosen = self._selected_pending()
+        if len(chosen) != 1:
+            return
+        pending = chosen[0]
+        dialog = CropDialog(pending.source, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return  # Esc or the close button: leave an existing crop alone
+        if dialog.box is not None:
+            self._note("Cropping…")
+            self._normalise(pending.seq, pending.source, pending.origin, crop=dialog.box)
+        elif dialog.reset and pending.crop is not None:
+            self._note("Using the whole picture…")
+            self._normalise(pending.seq, pending.source, pending.origin)
 
     def _apply_tags(self) -> None:
         """Bulk tagging: the field applies to the selection, or to everything."""
         tags = normalise_tags(self._tags_field.text().split(","))
         if not tags:
             return
-        chosen = {i.data(Qt.ItemDataRole.UserRole) for i in self._tray_grid.selectedItems()}
-        for entry in self._pending:
-            if not chosen or entry.id in chosen:
-                self._pending_tags[entry.id] = tags
+        chosen = {p.seq for p in self._selected_pending()}
+        for pending in self._pending:
+            if not chosen or pending.seq in chosen:
+                pending.tags = tags
         self._tags_field.clear()
         self._reload_tray()
 
     def _commit_pending(self) -> None:
-        """Anything still untagged takes whatever is in the field on the way in."""
+        """Write the files, then the manifest. Anything still untagged takes whatever is
+        in the field on the way in."""
         fallback = normalise_tags(self._tags_field.text().split(","))
-        category = self._category_field.text().strip() or None
-        for entry in self._pending:
-            tags = self._pending_tags.get(entry.id) or fallback
-            library_mod.attach_image(self._library, entry, tags, category)
+        categories = normalise_tags(self._category_field.text().split(","))
+        for pending in self._pending:
+            entry = write_image(
+                self._library.root,
+                pending.data,
+                pending.thumb,
+                pending.extension,
+                pending.width,
+                pending.height,
+                source=pending.origin,
+            )
+            library_mod.attach_image(self._library, entry, pending.tags or fallback, categories)
 
         count = len(self._pending)
         self._discard_pending()
@@ -297,10 +406,8 @@ class ImagesPage(QWidget):
         self._note(f"Added {count} picture(s).")
 
     def _discard_pending(self) -> None:
-        """Clears the tray. The normalised files stay on disk — validation offers to
-        adopt them later (DATA_MODEL §4), and nothing here deletes a parent's picture."""
+        """Clears the tray. Nothing was written, so nothing is left behind."""
         self._pending.clear()
-        self._pending_tags.clear()
         self._tags_field.clear()
         self._category_field.clear()
         self._reload_tray()
@@ -330,20 +437,74 @@ class ImagesPage(QWidget):
         selected = self._selected()
         if not selected:
             return
-        current = selected[0].category or ""
+        current = ", ".join(selected[0].categories) if len(selected) == 1 else ""
         text, ok = QInputDialog.getText(
             self,
-            "Category",
-            f"Category for {len(selected)} picture(s) (blank for none):",
+            "Categories",
+            f"Comma-separated categories for {len(selected)} picture(s), blank for none.\n"
+            "A picture can be in several: a yellow square is a colour and a shape.",
             QLineEdit.EchoMode.Normal,
             current,
         )
         if not ok:
             return
         for image in selected:
-            image.category = text.strip() or None
+            image.categories = normalise_tags(text.split(","))
         self._save()
         self.reload()
+
+    def _edit_strict_categories(self) -> None:
+        """Which categories may only be compared with their own kind.
+
+        Tags say what a picture is *of*; nothing says what it incidentally looks like, so
+        a dog tagged only `dog` can still be yellow and turn up as a wrong-but-not-wrong
+        answer to "where is yellow?". Ticking `colours` here keeps colour questions among
+        colour pictures, and leaves "where is the cat" free to show a truck.
+        """
+        known = sorted({c for image in self._library.images for c in image.categories})
+        if not known:
+            self._note("No categories yet — give some pictures a category first.")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Category matching")
+        layout = QVBoxLayout(dialog)
+        caption = QLabel(
+            "Tick a category to compare it only with itself.\n\n"
+            "Use it for categories a picture can accidentally belong to — colours, sizes.\n"
+            "A yellow-ish dog should never be the wrong answer to “where is yellow?”."
+        )
+        caption.setWordWrap(True)
+        layout.addWidget(caption)
+
+        strict = set(self._settings.strict_categories)
+        boxes = {}
+        for category in known:
+            box = QCheckBox(category)
+            box.setChecked(category in strict)
+            layout.addWidget(box)
+            boxes[category] = box
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        # Categories ticked before but no longer in the library are kept: a category can
+        # come back when its pictures do, and silently forgetting the choice is worse.
+        gone = strict - set(known)
+        self._settings.strict_categories = sorted(
+            gone | {name for name, box in boxes.items() if box.isChecked()}
+        )
+        self._save_settings()
+        chosen = [name for name, box in boxes.items() if box.isChecked()]
+        self._note(
+            f"Matched only within: {', '.join(chosen)}." if chosen else "No category is strict."
+        )
 
     def _toggle_enabled(self) -> None:
         selected = self._selected()

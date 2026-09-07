@@ -157,6 +157,11 @@ class QuizSession(QObject):
         if self.state not in (State.ASKING, State.WAITING):
             return  # already celebrating; further clicks are ignored, not punished
 
+        # She clicked, so the question has done its job. Cut it: waiting a second and a
+        # half for the sentence to finish before anything acknowledges the click breaks
+        # the link between the two, which is the thing being taught (UX §3).
+        self._player.stop_voice()
+
         if tile.image_id == self._round.correct.id:
             self._correct(tile)
         else:
@@ -175,18 +180,13 @@ class QuizSession(QObject):
                 other.set_hovering(False)
                 other.recede()
 
-        def sing() -> None:
-            self._sfx.play("chime")
-            praise = self._library.playable_sounds("praise")
-            if praise:
-                # A parent's "yes! that's the cat!" beats a chime every time.
-                chosen = self._builder._rng.choice(praise)
-                self._player.after_voice(
-                    lambda: self._player.play_voice(self._library.root / chosen.file)
-                )
-
-        # Never cut audio off: if the question is still playing, let it finish (UX §3).
-        self._player.after_voice(sing)
+        # The question was cut by `on_click`, so the answer lands immediately.
+        self._sfx.play("chime")
+        praise = self._library.playable_sounds("praise")
+        if praise:
+            # A parent's "yes! that's the cat!" beats a chime every time.
+            chosen = self._builder._rng.choice(praise)
+            self._player.play_voice(self._library.root / chosen.file)
 
         hold = int(self._settings.celebrate_duration * 1000)
         self._after(hold + CROSSFADE_MS, self._next_round)
@@ -210,9 +210,7 @@ class QuizSession(QObject):
         retry = self._library.playable_sounds("retry")
         if retry:
             chosen = self._builder._rng.choice(retry)
-            self._player.after_voice(
-                lambda: self._player.play_voice(self._library.root / chosen.file)
-            )
+            self._player.play_voice(self._library.root / chosen.file)
 
-        # Ask again, once whatever is talking has finished.
+        # Ask again, once the retry line has finished — that one is not cut short.
         self._after(REPLAY_AFTER_WRONG_MS, lambda: self._player.after_voice(self._play_question))

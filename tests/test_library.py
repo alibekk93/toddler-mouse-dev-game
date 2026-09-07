@@ -276,3 +276,66 @@ def test_the_same_clip_can_be_both_a_question_and_a_praise_line(tmp_path):
     assert question.id == praise.id  # same audio, so the same content hash
     assert [s.kind for s in library.sounds] == ["question", "praise"]
     assert "orphan_file" not in codes(lib.validate(library))
+
+
+# -- categories ------------------------------------------------------------
+
+
+def test_a_schema_1_manifest_migrates_its_category_to_a_list(tmp_path):
+    """The old one-category shape must survive the upgrade. `_entry` keeps only fields
+    the dataclass declares, so a category not migrated before that point is dropped on
+    load and gone for good on the next save."""
+    root = tmp_path / "lib"
+    (root / "images").mkdir(parents=True)
+    (root / "images" / "abc.png").write_bytes(b"x")
+    (root / "library.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "images": [
+                    {
+                        "id": "abc",
+                        "file": "images/abc.png",
+                        "thumb": "thumbs/abc.jpg",
+                        "tags": ["cat"],
+                        "category": "Animals",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    library, _issues = lib.load(root)
+    assert library.images[0].categories == ["animals"]  # casefolded, like a tag
+
+    lib.save(library)
+    reloaded, _issues = lib.load(root)
+    assert reloaded.images[0].categories == ["animals"]
+    written = json.loads((root / "library.json").read_text(encoding="utf-8"))
+    assert written["schema_version"] == 2
+    assert "category" not in written["images"][0]
+
+
+def test_an_image_with_no_category_migrates_to_an_empty_list(tmp_path):
+    root = tmp_path / "lib"
+    root.mkdir(parents=True)
+    (root / "library.json").write_text(
+        json.dumps({"images": [{"id": "a", "file": "images/a.png", "thumb": ""}]}),
+        encoding="utf-8",
+    )
+    library, _issues = lib.load(root)
+    assert library.images[0].categories == []
+
+
+def test_adding_the_same_picture_again_unions_its_categories(tmp_path):
+    """A yellow square added once as a colour and once as a shape belongs to both.
+    Keeping only the first would make the parent choose, which is the bug."""
+    library = lib.Library(root=tmp_path / "lib")
+    source = make_image(tmp_path / "square.png", colour=(240, 200, 60))
+    first = lib.add_image(library, source, tags=["yellow"], categories=["colours"])
+    second = lib.add_image(library, source, tags=["square"], categories=["shapes"])
+
+    assert first is second
+    assert second.categories == ["colours", "shapes"]
+    assert second.tags == ["yellow", "square"]

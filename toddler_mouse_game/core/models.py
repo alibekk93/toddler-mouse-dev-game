@@ -32,7 +32,9 @@ class Image:
     file: str
     thumb: str
     tags: list[str] = field(default_factory=list)
-    category: str | None = None
+    # A picture belongs to as many categories as fit it: a yellow square is a colour
+    # *and* a shape. Normalised like tags — see core/library.py for the v1 migration.
+    categories: list[str] = field(default_factory=list)
     label: str | None = None
     enabled: bool = True
     source: str = "file"  # clipboard | file | drop
@@ -64,6 +66,11 @@ class Settings:
     option_count: int = 2  # 2-6
     distractor_strategy: str = "mixed"  # mixed | same_category | contrast
     enabled_categories: list[str] | None = None  # None = all
+    # Categories whose questions may only be answered against their own kind. A picture
+    # can be incidentally yellow without being tagged `yellow`, so a yellow-ish dog is a
+    # wrong answer that is not wrong. Naming `colours` here keeps colour questions to
+    # colour pictures, and leaves "where is the cat" free to show a truck.
+    strict_categories: list[str] = field(default_factory=list)
     repeat_question: bool = True
     repeat_interval: float = 8.0  # seconds, 4-30
     hint_after: int | None = 2  # repeat ticks before hinting; None = off

@@ -65,7 +65,9 @@ Everything is slower than an adult app, and nothing that matters happens fast.
 | Correct answer celebration | 2.5s (setting) |
 | Cross-fade to next round | 400ms |
 
-Never cut audio off. If the question is still playing when she clicks, let the click resolve but let the audio finish, then play the response sound. Two voices overlapping is confusing.
+**A click cuts the question off.** If the question is still playing when she clicks, stop it and play the response — chime or nudge — immediately. Waiting a second and a half for the sentence to finish before anything acknowledges the click breaks the link between the two, and that link is the thing being taught.
+
+Nothing else is ever cut. Two voices never overlap: the praise or retry line has the channel to itself, and the question only repeats once that line has finished.
 
 ## 4. Sound design
 

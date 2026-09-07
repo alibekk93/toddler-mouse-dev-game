@@ -55,13 +55,23 @@ class RoundBuilder:
 
     def build(self) -> Round | None:
         """Next round, or None when no prompt can produce one (SPEC §6, "all done")."""
-        remaining = self._candidate_prompts()
+        built = self._first_buildable(self._candidate_prompts())
+        if built is None and self._recent_prompts:
+            # Every prompt except the one just asked turned out unbuildable. Asking the
+            # same question twice running is a small cost; ending a session that still
+            # has content in it looks exactly like the game breaking.
+            built = self._first_buildable(self._playable_prompts())
+        if built is not None:
+            self._remember(built)
+        return built
+
+    def _first_buildable(self, prompts: list[Sound]) -> Round | None:
+        remaining = list(prompts)
         while remaining:
             prompt = self._pick(remaining, self._recent_prompts, lambda s: s.id)
             remaining.remove(prompt)
             built = self._build_for(prompt)
             if built is not None:
-                self._remember(built)
                 return built
         return None
 
@@ -73,16 +83,20 @@ class RoundBuilder:
         allowed = self._settings.enabled_categories
         if allowed is None:
             return images
-        return [i for i in images if i.category in set(allowed)]
+        return [i for i in images if set(i.categories) & set(allowed)]
 
-    def _candidate_prompts(self) -> list[Sound]:
+    def _playable_prompts(self) -> list[Sound]:
         """Questions whose tag has at least one usable picture behind it."""
         tags = {tag for image in self._usable_images() for tag in image.tags}
-        prompts = [
+        return [
             s
             for s in self._library.playable_sounds("question")
             if s.target_tag and s.target_tag in tags
         ]
+
+    def _candidate_prompts(self) -> list[Sound]:
+        """The playable ones, minus the one just asked."""
+        prompts = self._playable_prompts()
         # Never the same prompt twice in a row — unless it is the only one there is.
         if len(prompts) > 1 and self._recent_prompts:
             last = self._recent_prompts[-1]
@@ -121,11 +135,22 @@ class RoundBuilder:
             if i.id != correct.id and target_tag not in i.tags and not correct_tags & set(i.tags)
         ]
 
+        # Tags describe what a picture *is of*, and nothing records what it incidentally
+        # looks like: a dog tagged only `dog` may well be yellow, which makes it a wrong
+        # answer to "where is yellow?" that is not wrong. A strict category says "only
+        # compare these with their own kind" (SPEC §4.4). Unlike the strategy preference
+        # below, this one does not fall back — an unanswerable prompt is skipped by
+        # `build()` (SPEC §2.1 step 5), which is far better than an unfair round.
+        strict = set(self._settings.strict_categories) & set(correct.categories)
+        if strict:
+            pool = [i for i in pool if strict & set(i.categories)]
+
         strategy = self._settings.distractor_strategy
+        correct_categories = set(correct.categories)
         if strategy == "same_category":
-            preferred = [i for i in pool if i.category == correct.category]
+            preferred = [i for i in pool if correct_categories & set(i.categories)]
         elif strategy == "contrast":
-            preferred = [i for i in pool if i.category != correct.category]
+            preferred = [i for i in pool if not correct_categories & set(i.categories)]
         else:  # mixed, the default and the easiest
             return pool
         # A strategy narrows the pool; it never makes a round impossible.

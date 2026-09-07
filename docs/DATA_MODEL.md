@@ -44,7 +44,7 @@ In this setup the real library is `buska-game/library/`, a sibling of the repo â
 
 ```jsonc
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "updated_at": "2026-08-30T14:02:11Z",
   "images": [
     {
@@ -52,7 +52,7 @@ In this setup the real library is `buska-game/library/`, a sibling of the repo â
       "file": "images/7f3a1c2e.png",  // relative to library root
       "thumb": "thumbs/7f3a1c2e.jpg",
       "tags": ["cat", "animal"],      // trimmed, casefolded, NFC, deduped; any script
-      "category": "animals",          // optional, free string
+      "categories": ["animals"],      // optional, any number of them
       "label": "orange tabby",        // optional, parent-facing only
       "enabled": true,
       "source": "clipboard",          // clipboard | file | drop
@@ -84,6 +84,7 @@ In this setup the real library is `buska-game/library/`, a sibling of the repo â
 - Filenames on disk are always hash-derived ASCII, never tag-derived â€” this keeps non-Latin tags away from filesystem encoding problems entirely.
 - A `question` sound whose `target_tag` matches no enabled image is **valid but unusable** â€” surfaced as a warning, never an error.
 - An image with no tags is valid but never appears as a correct answer. It may still appear as a distractor.
+- `categories` is a list, normalised exactly like `tags`. A picture belongs to as many as fit it â€” a yellow square is a colour *and* a shape â€” because forcing one would make `enabled_categories` and the distractor rules pick a side arbitrarily. **Schema 1 wrote a single `category` string**; it is migrated to a one-item list on load, before anything else touches the entry, and written back as a list.
 - `praise` and `retry` sounds have no `target_tag`; the game picks one at random.
 
 ## 4. Validation and repair

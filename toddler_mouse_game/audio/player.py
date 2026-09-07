@@ -95,9 +95,17 @@ class Player(QObject):
         self._poll.start()
 
     def stop_voice(self) -> None:
+        """Cut the voice channel, dropping anything queued behind it.
+
+        A callback queued by `after_voice` is waiting for *this* recording to finish. If
+        the recording is cut deliberately — she clicked, so the question has done its job
+        — then what was waiting on it is stale, and leaving it set would fire it against
+        whatever plays next.
+        """
         if self._voice_key and self._voice_key in self._effects:
             self._effects[self._voice_key].stop()
         self._voice_key = None
+        self._queued = None
         self._poll.stop()
 
     def is_voice_playing(self) -> bool:

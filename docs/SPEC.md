@@ -127,7 +127,9 @@ Adding images, all three routes must work:
 - **Drag and drop** onto the grid, including multiple files at once.
 - **Clipboard paste** (`Ctrl+V`) — both an image on the clipboard (screenshot, copied web image) and a file path on the clipboard.
 
-On import, every image is normalised (see `ARCHITECTURE.md` §4) and lands in a **staging tray** where the parent types its tags before it joins the library: one free-text field, **comma-separated**, any script (`cat, animal` / `кошка`). Bulk-tagging: select many, type once, apply to all — essential when you paste twelve dog pictures.
+On import, every image is normalised (see `ARCHITECTURE.md` §4) and lands in a **staging tray** where the parent types its tags before it joins the library: one free-text field, **comma-separated**, any script (`cat, animal` / `кошка`). Bulk-tagging: select many, type once, apply to all — essential when you paste twelve dog pictures. Categories are typed the same way, comma-separated, and a picture may be in several.
+
+**Crop** in the tray, before anything is written: drag a rectangle over the part that matters. A photo where the cat is a small corner of a busy kitchen makes a poor card, since the card letterboxes the picture whole (`UX.md` §1). Nothing reaches disk until **Add to library**, so cropping is free and repeatable, and discarding a tray leaves nothing behind.
 
 **Tags are only ever typed by a parent.** Nothing infers them from a filename or a folder name — files on disk are hash-named, and what a picture is called has nothing to do with what it is a picture of. Folder-name auto-tagging was considered and declined (`FUTURE_IDEAS.md`).
 
@@ -153,7 +155,8 @@ Also allow importing an existing audio file, for the case where you already have
 | --- | --- | --- |
 | `option_count` (n) | 2 | 2–6 |
 | `distractor_strategy` | `mixed` | `mixed`, `same_category`, `contrast` |
-| `enabled_categories` | all | subset |
+| `enabled_categories` | all | subset — a picture counts if *any* of its categories is enabled |
+| `strict_categories` | none | subset — categories compared only with their own kind (see below) |
 | `repeat_question` | on | on/off — replay the question while she hasn't clicked |
 | `repeat_interval` | 8s | 4–30s — also paces hint escalation |
 | `hint_after` | 2 | off, or 0–5 repeat ticks before the correct card starts breathing |
@@ -166,6 +169,8 @@ Also allow importing an existing audio file, for the case where you already have
 | `show_tag_caption` | off | on/off (prints the tag under each card — for older siblings) |
 
 Start `option_count` at **2**. Two choices is the right first lesson; the parent raises it when she's bored of winning.
+
+**`strict_categories` exists because tags describe what a picture is *of*, and nothing records what it incidentally looks like.** A dog tagged only `dog` may well be yellow, which makes it a wrong answer to "where is yellow?" that is not wrong — and being told she is wrong when she is right is the one thing this game must never do. Naming `colours` here means a colour question only ever draws colour pictures. It is deliberately not the default for everything: "where is the cat" against a truck is the easiest possible first round, and constraining every question to its own category would take that away.
 
 Two things are deliberately *not* settings. Kid mode always opens fullscreen on the primary screen — no windowed mode, no monitor picker. And a session runs until a grown-up exits it — no session timer, no round cap, no "that's enough for today" screen. Knowing when she's had enough is the parent's job, and the software does not second-guess it.
 
@@ -198,7 +203,7 @@ This is not a nice-to-have. The pictures are replaceable; recordings of a parent
 
 ## 5. Content model in one paragraph
 
-An **image** is a file plus one or more **tags** plus an optional **category**. A **question** is a recording plus exactly one **target tag**. The game asks a question and treats every image carrying that tag as correct. That is the entire content model, and it is why colours, numbers, letters, logos, and household objects all work without any code change: tag three pictures `red`, record "where is red?", done.
+An **image** is a file plus one or more **tags** plus any number of optional **categories**. A **question** is a recording plus exactly one **target tag**. The game asks a question and treats every image carrying that tag as correct. That is the entire content model, and it is why colours, numbers, letters, logos, and household objects all work without any code change: tag three pictures `red`, record "where is red?", done.
 
 Tags are opaque strings in any language or script — `cat`, `chat`, `кошка`, `7`, `letter_b`, `toyota` are all identical to the engine, which only ever compares them to each other. Nothing anywhere records what language a tag or a recording is in, because nothing needs to.
 

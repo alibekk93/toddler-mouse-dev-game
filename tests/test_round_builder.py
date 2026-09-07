@@ -9,13 +9,13 @@ from toddler_mouse_game.core.round_builder import RoundBuilder, readiness
 ROUNDS = 200  # long enough that a rule broken once in a while still shows up
 
 
-def img(image_id, tags=(), category=None, **kwargs):
+def img(image_id, tags=(), categories=(), **kwargs):
     return Image(
         id=image_id,
         file=f"images/{image_id}.png",
         thumb=f"thumbs/{image_id}.jpg",
         tags=list(tags),
-        category=category,
+        categories=list(categories),
         **kwargs,
     )
 
@@ -37,7 +37,7 @@ def basic(per_tag=2):
     for category, tags in groups.items():
         for tag in tags:
             for n in range(per_tag):
-                images.append(img(f"{tag}{n}", [tag], category))
+                images.append(img(f"{tag}{n}", [tag], [category]))
             sounds.append(question(f"q-{tag}", tag))
     return library(images, sounds)
 
@@ -131,8 +131,8 @@ def test_several_pictures_for_one_tag_all_get_shown():
 
 
 def strategy_library():
-    animals = [img(tag, [tag], "animals") for tag in ("cat", "dog", "bird", "fish", "horse")]
-    vehicles = [img(tag, [tag], "vehicles") for tag in ("car", "bus", "train", "boat")]
+    animals = [img(tag, [tag], ["animals"]) for tag in ("cat", "dog", "bird", "fish", "horse")]
+    vehicles = [img(tag, [tag], ["vehicles"]) for tag in ("car", "bus", "train", "boat")]
     return library(animals + vehicles, [question("q-cat", "cat")])
 
 
@@ -141,7 +141,7 @@ def test_same_category_draws_distractors_from_the_correct_images_category():
         strategy_library(), Settings(option_count=4, distractor_strategy="same_category"), seed=2
     )
     for built in run(builder, 40):
-        assert all(o.category == "animals" for o in built.options)
+        assert all("animals" in o.categories for o in built.options)
 
 
 def test_contrast_draws_distractors_from_other_categories():
@@ -150,13 +150,13 @@ def test_contrast_draws_distractors_from_other_categories():
     )
     for built in run(builder, 40):
         others = [o for o in built.options if o.id != built.correct.id]
-        assert all(o.category == "vehicles" for o in others)
+        assert all("vehicles" in o.categories for o in others)
 
 
 def test_a_strategy_falls_back_rather_than_ending_the_session():
     # Only two other animals exist, so n=5 cannot be filled from the category alone.
-    images = [img(tag, [tag], "animals") for tag in ("cat", "dog", "bird")]
-    images += [img(tag, [tag], "vehicles") for tag in ("car", "bus")]
+    images = [img(tag, [tag], ["animals"]) for tag in ("cat", "dog", "bird")]
+    images += [img(tag, [tag], ["vehicles"]) for tag in ("car", "bus")]
     builder = RoundBuilder(
         library(images, [question("q", "cat")]),
         Settings(option_count=5, distractor_strategy="same_category"),
@@ -170,8 +170,107 @@ def test_mixed_is_free_to_cross_categories():
     builder = RoundBuilder(
         strategy_library(), Settings(option_count=4, distractor_strategy="mixed"), seed=2
     )
-    seen = {o.category for built in run(builder, 60) for o in built.options}
+    seen = {c for built in run(builder, 60) for o in built.options for c in o.categories}
     assert seen == {"animals", "vehicles"}
+
+
+# -- strict categories (BACKLOG: a yellow dog is not a wrong answer) --------
+
+
+def colour_library():
+    """A yellow square and a yellow-ish dog. Tags cannot tell them apart: nothing
+    records that the dog *looks* yellow, only that it is a dog."""
+    images = [
+        img("square-yellow", ["yellow"], ["colours", "shapes"]),
+        img("square-blue", ["blue"], ["colours", "shapes"]),
+        img("circle-red", ["red"], ["colours", "shapes"]),
+        img("dog", ["dog"], ["animals"]),
+        img("cat", ["cat"], ["animals"]),
+    ]
+    return library(images, [question("q-yellow", "yellow"), question("q-dog", "dog")])
+
+
+def test_a_strict_category_keeps_a_colour_question_among_colours():
+    builder = RoundBuilder(
+        colour_library(),
+        Settings(option_count=3, strict_categories=["colours"]),
+        seed=11,
+    )
+    for built in run(builder, 40):
+        if built.prompt.target_tag != "yellow":
+            continue
+        assert all("colours" in o.categories for o in built.options)
+
+
+def test_a_category_nobody_marked_strict_still_crosses_freely():
+    builder = RoundBuilder(colour_library(), Settings(option_count=3), seed=11)
+    seen = {c for built in run(builder, 60) for o in built.options for c in o.categories}
+    assert "animals" in seen and "colours" in seen
+
+
+def test_strictness_only_binds_the_categories_it_names():
+    """`colours` is strict; `animals` is not, so a dog question may still show a square
+    — that is the easy day-one round SPEC §4.4 wants to keep."""
+    builder = RoundBuilder(
+        colour_library(),
+        Settings(option_count=3, strict_categories=["colours"]),
+        seed=3,
+    )
+    crossed = [
+        built
+        for built in run(builder, 80)
+        if built.prompt.target_tag == "dog"
+        and any("colours" in o.categories for o in built.options)
+    ]
+    assert crossed
+
+
+def test_a_starved_strict_prompt_is_skipped_not_shortened():
+    """Only one other colour exists, so a round of 3 cannot be built honestly. The
+    prompt is skipped (SPEC §2.1 step 5) rather than padded with an animal."""
+    images = [
+        img("square-yellow", ["yellow"], ["colours"]),
+        img("square-blue", ["blue"], ["colours"]),
+        img("dog", ["dog"], ["animals"]),
+        img("cat", ["cat"], ["animals"]),
+    ]
+    builder = RoundBuilder(
+        library(images, [question("q-yellow", "yellow"), question("q-dog", "dog")]),
+        Settings(option_count=3, strict_categories=["colours"]),
+        seed=5,
+    )
+    for built in run(builder, 40):
+        assert built.prompt.target_tag == "dog"
+        assert len(built.options) == 3
+
+
+def test_one_unbuildable_prompt_does_not_end_a_session_that_still_works():
+    """The "never twice in a row" rule hides the last prompt from the next round. If
+    everything else is unbuildable, repeat it rather than showing "all done" to a child
+    sitting in front of a library that still has plenty in it."""
+    images = [
+        img("square-yellow", ["yellow"], ["colours"]),
+        img("square-blue", ["blue"], ["colours"]),
+        img("dog", ["dog"], ["animals"]),
+        img("cat", ["cat"], ["animals"]),
+    ]
+    builder = RoundBuilder(
+        library(images, [question("q-yellow", "yellow"), question("q-dog", "dog")]),
+        Settings(option_count=3, strict_categories=["colours"]),
+        seed=5,
+    )
+    assert len(run(builder, 30)) == 30  # never returns None, never ends early
+
+
+def test_a_picture_can_be_in_several_categories_at_once():
+    builder = RoundBuilder(
+        colour_library(),
+        Settings(option_count=2, enabled_categories=["shapes"]),
+        seed=7,
+    )
+    # The squares are both colours and shapes, so enabling only `shapes` still finds them.
+    for built in run(builder, 20):
+        assert all("shapes" in o.categories for o in built.options)
 
 
 # -- shape of a round ------------------------------------------------------
@@ -243,7 +342,7 @@ def test_enabled_categories_restricts_the_pool():
         seed=6,
     )
     for built in run(builder, 40):
-        assert all(o.category == "animals" for o in built.options)
+        assert all("animals" in o.categories for o in built.options)
 
 
 # -- readiness (SPEC §4.1) -------------------------------------------------

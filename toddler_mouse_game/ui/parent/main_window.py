@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from ...core import library as library_mod
+from ...core import settings as settings_mod
 from ...core.library import Library
 from ...core.models import Settings
 from ...core.round_builder import readiness
@@ -51,7 +52,7 @@ class MainWindow(QWidget):
         self._stack = QStackedWidget()
         for name, page in (
             ("Play", self._play),
-            ("Pictures", ImagesPage(library, self.save)),
+            ("Pictures", ImagesPage(library, settings, self.save, self.save_settings)),
             ("Sounds", SoundsPage(library, self.save)),
         ):
             self._nav.addItem(name)
@@ -74,6 +75,13 @@ class MainWindow(QWidget):
         page updates the Play button without a restart.
         """
         library_mod.save(self._library)
+        self.refresh()
+
+    def save_settings(self) -> None:
+        """Persist settings.json. Separate from `save` because the manifest describes
+        content and settings describe play — a page changing one must not rewrite the
+        other (DATA_MODEL §5)."""
+        settings_mod.save(self._library.root, self._settings)
         self.refresh()
 
     def refresh(self) -> None:
