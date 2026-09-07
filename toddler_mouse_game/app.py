@@ -63,12 +63,7 @@ def run(library_dir: Path, start_in_kid_mode: bool = False) -> int:
         parent.hide()
         kid.start(activity, scene, sprite_cursor=settings.cursor_mode != "hardware")
 
-        geometry = kid.frameGeometry()
-        session.enter_context(
-            hardening.hardened_session(
-                (geometry.left(), geometry.top(), geometry.right(), geometry.bottom())
-            )
-        )
+        session.enter_context(hardening.hardened_session(kid.clip_rect()))
         for failure in hardening.failures():
             print(f"session hardening: {failure}")  # log it and carry on
 

@@ -25,6 +25,25 @@ RING_DIAMETER = 0.18  # of the shorter screen edge
 RING_THICKNESS = 0.09  # of the ring diameter
 
 
+def physical_rect(geometry, ratio: float) -> tuple[int, int, int, int]:
+    """A Qt logical rectangle in the physical device pixels Win32 works in.
+
+    `ClipCursor` (SPEC §7) is a raw Win32 call and takes real pixels, but Qt reports
+    geometry in device-independent ones, and the app runs with `PassThrough` DPI rounding
+    (ARCHITECTURE §4.3) so the two genuinely differ. On a 1920x1080 display at 150% Qt
+    says 1280x720 — clipping to *that* traps the cursor in the top-left two thirds of the
+    screen, which is indistinguishable from the game being broken.
+
+    Qt's `right()`/`bottom()` are inclusive and a Win32 RECT's are exclusive, hence the +1.
+    """
+    return (
+        round(geometry.left() * ratio),
+        round(geometry.top() * ratio),
+        round((geometry.right() + 1) * ratio),
+        round((geometry.bottom() + 1) * ratio),
+    )
+
+
 class KidWindow(QGraphicsView):
     """Hosts one activity at a time. Emits `exited` on the way back to parent mode."""
 
@@ -93,6 +112,21 @@ class KidWindow(QGraphicsView):
         self._clock.start()
         self._last_click.start()
         self._frame.start()
+
+    def clip_rect(self) -> tuple[int, int, int, int] | None:
+        """The rectangle the cursor may not leave (SPEC §7), in physical pixels.
+
+        Taken from the **screen**, not from this window. Two reasons, and either one alone
+        is enough to get it wrong: `showFullScreen()` is applied by the window manager
+        asynchronously, so reading the window's geometry straight afterwards can still
+        return its pre-fullscreen size; and kid mode is always fullscreen on the primary
+        screen anyway (SPEC §4.4), which makes the screen rect the honest answer with no
+        timing to get wrong.
+        """
+        screen = self.screen() or QGuiApplication.primaryScreen()
+        if screen is None:
+            return None
+        return physical_rect(screen.geometry(), screen.devicePixelRatio())
 
     def _hardware_cursor(self, scene: KidScene) -> QCursor:
         """The `cursor_mode: hardware` escape hatch, if the sprite feels laggy."""
